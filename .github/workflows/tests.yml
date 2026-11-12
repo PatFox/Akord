@@ -10,6 +10,7 @@ permissions:
   contents: read
 
 jobs:
+  # Full gate on SQLite: Pint, PHPStan and the test suite (tests/Concurrency is skipped here).
   ci:
     runs-on: ubuntu-latest
 
@@ -36,3 +37,57 @@ jobs:
 
       - name: Run CI Checks
         run: composer ci:check
+
+  # The test suite on MySQL 8.4, including tests/Concurrency (real parallel sign-offs).
+  # DB_* are real environment variables, so they override phpunit.xml's SQLite settings.
+  mysql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: secret
+          MYSQL_DATABASE: akord_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -psecret"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+
+    env:
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_DATABASE: akord_test
+      DB_USERNAME: root
+      DB_PASSWORD: secret
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_mysql
+          tools: composer:v2
+          coverage: none
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+
+      - name: Setup Application
+        run: composer setup
+
+      # Nothing may be skipped on MySQL: a skip means the suite fell back to SQLite.
+      - name: Run tests on MySQL
+        run: php artisan test --fail-on-skipped
