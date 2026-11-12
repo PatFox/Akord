@@ -76,9 +76,9 @@ This document records the agreed plan: v2, as amended by v3 and decisions D8–D
 
 - **One active row per key, without partial indexes.** MySQL has no `CREATE UNIQUE INDEX … WHERE`. `approvals` and `contract_signoffs` instead have a stored generated column, `active` (`case when withdrawn_at is null then true end`), which is true while the row is active and `NULL` once withdrawn. The unique index includes `active`. All three engines treat NULLs as distinct in a unique index, so withdrawn rows never conflict. Application code never writes `active`: don't set it and don't `replicate()` these models.
 - **Case-insensitive text on MySQL.** The default `utf8mb4_*_ci` collations compare text case-insensitively, while SQLite and PostgreSQL compare case-sensitively. Normalise emails to lowercase on write (users and invitations) and match on the normalised value, so invitation email matching (Phase 6) behaves the same everywhere. Hashes and fingerprints are lowercase hex, so they're unaffected.
-- **Row locks are real on MySQL and PostgreSQL.** SQLite ignores `lockForUpdate()` and runs writes one at a time, so SQLite tests can't prove lock-based correctness. Actions lock rows in a fixed order (contract first) to avoid deadlocks under MySQL's REPEATABLE READ. Concurrency tests (test 6) must run on MySQL.
-- **The activity cursor needs care.** With concurrent writers on MySQL or PostgreSQL, auto-increment ids can commit out of order. A client that has read up to id N could then permanently miss a lower id that commits later. SQLite hides this because it runs writes one at a time. Phase 3 must make `activity?since=` safe, for example by serialising event inserts per organisation behind a row lock, or by serving only events older than a short commit grace period. Decide this when `activity_events` writes are implemented.
-- **Running the suite on MySQL:** start a throwaway server (`docker run -d --rm --name akord-mysql-test -e MYSQL_ROOT_PASSWORD=secret -e MYSQL_DATABASE=akord_test -p 127.0.0.1:33061:3306 --tmpfs /var/lib/mysql mysql:8.4`). Then run `DB_CONNECTION=mysql DB_HOST=127.0.0.1 DB_PORT=33061 DB_DATABASE=akord_test DB_USERNAME=root DB_PASSWORD=secret php artisan test`. The kit's CI (`.github/workflows/tests.yml`) currently runs SQLite only.
+- **Row locks are real on MySQL and PostgreSQL.** SQLite ignores `lockForUpdate()` and runs writes one at a time, so SQLite tests can't prove lock-based correctness. Every write goes through `ContractTransaction`, whose **first statement** locks the contract row. That gives one lock order (no deadlocks), and on MySQL REPEATABLE READ every later plain read in the transaction sees all work committed before the lock. Code inside a transaction must therefore never read before taking that lock, and must re-read related rows rather than trust models loaded earlier (`Contract::findStep()` / `findPhase()`). Concurrency tests live in `tests/Concurrency`, run only on a server database, and are skipped on SQLite.
+- **Activity cursor (decided in Phase 3).** Auto-increment ids are allocated at insert, not commit, so paging by id can skip a lower id that commits late. Events are inserted with `seq = NULL`. After each write commits, `ActivitySequencer` runs a short transaction behind the single `activity_sequencer` row lock and numbers every committed, unnumbered event in id order. The feed pages by `seq` (`ActivityEvent::after($cursor)`). Each sequencer run sees only committed rows and commits before the next starts, so a late committer always gets a higher `seq` than anything a reader has seen. Only this small step is serialised, not every write. Per-organisation locks were rejected because a user's feed can span organisations. `activity?since=` (Phase 7) must call `ActivitySequencer::run()` before reading, to number any event whose post-commit run never happened (for example, a crashed process).
+- **Running the suite on MySQL:** start a throwaway server (`docker run -d --rm --name akord-mysql-test -e MYSQL_ROOT_PASSWORD=secret -e MYSQL_DATABASE=akord_test -p 127.0.0.1:33061:3306 --tmpfs /var/lib/mysql mysql:8.4`). Then run `DB_CONNECTION=mysql DB_HOST=127.0.0.1 DB_PORT=33061 DB_DATABASE=akord_test DB_USERNAME=root DB_PASSWORD=secret php artisan test`. Pass the variables per command rather than `export`ing them, or later runs silently use MySQL too. The kit's CI (`.github/workflows/tests.yml`) currently runs SQLite only, so the concurrency test doesn't run in CI.
 
 ### Rules
 
@@ -154,26 +154,51 @@ This document records the agreed plan: v2, as amended by v3 and decisions D8–D
 - `config/sanctum.php`: cast `env()` to string so the kit's `composer test` gate (Pint, Larastan level 7, Pest) passes.
 - **Verified:** `composer test` gives Pint pass, Larastan 0 errors, and 55 tests passed. The same 55 tests pass on MySQL 8.4, and MySQL's schema shows the generated `active` columns, the new unique indexes, and every composite foreign key, including the circular one between `steps` and `step_revisions`. `migrate:reset` followed by `migrate` works on both SQLite and MySQL.
 
-### Phase 3: actions (`app/Actions`)
+### Phase 3: actions ✅ done 2026-11-13
 
-- Each action is transactional, enforces the lock, writes an `activity_events` row, and broadcasts after commit.
-- **Steps:** `CreateStep`, `ReviseStep`, `ReorderSteps`, `MoveStep`, `ArchiveStep`.
-- **Phases:** `CreatePhase`, `RenamePhase`, `ReorderPhases`.
-- **Comments:** `AddComment`, `ResolveComment`.
-- **Approvals:** `ApproveStep`, `WithdrawApproval`.
-- **Contract setup:** `AttachParty`, `SetRequiredApprover`.
-- **`ContractReadiness`** (read-only). Returns the current fingerprint, the outstanding (step × party) approvals, and which parties have signed off on the current fingerprint.
-- **`SignOffContract`:**
-  1. Lock the contract row.
-  2. Require `ready_for_signoff`, a required-approver party, and an editor or commenter role.
-  3. Check D10: if `require_human_signoff` is on and the actor is an agent, return `403`.
-  4. Take the fingerprint the caller reviewed. If it is stale return `409`; if the contract is not ready return `422`; if it is locked return `423`.
-  5. Record the sign-off. If every required party has now signed off on this fingerprint, set `agreed_at` and `agreed_fingerprint`.
-- **`WithdrawSignOff`**, allowed only before the contract is locked.
-- **`StartNewVersion`:** copies active phases and steps into new rev-1 revisions, carries no approvals or sign-offs, links `previous_version_id` and `origin_step_id`, and starts in `draft`.
-- **Lock guard:** a shared check that makes every write fail on an agreed contract, except `StartNewVersion`.
-- **Readiness events:** every mutating action compares readiness before and after. It emits `ContractReadyForSignOff` or `ContractNoLongerReady`, and `SignOffsInvalidated` if active sign-offs stopped counting.
-- The web UI, the API and MCP all call these same actions.
+- **Actions** (`app/Actions/{Phases,Steps,Comments,Approvals,Contracts}`), each with a `handle(Actor $actor, …)` method:
+  - Phases: `CreatePhase`, `RenamePhase`, `ReorderPhases`.
+  - Steps: `CreateStep`, `ReviseStep`, `ReorderSteps`, `MoveStep`, `ArchiveStep`.
+  - Comments: `AddComment`, `ResolveComment`.
+  - Approvals: `ApproveStep`, `WithdrawApproval`.
+  - Contracts: `AttachParty`, `SetRequiredApprover`, `SignOffContract`, `WithdrawSignOff`, `StartNewVersion`, and the read-only `ContractReadiness`.
+  - The web UI, the API and MCP must all call these.
+- **`Actor`** (`app/Support/Actor.php`): `Actor::user($user, $party)` is a person acting for one of their parties; the party may be left out only for owner administration. `Actor::agent($party, $tokenAbilities)` is an agent.
+- **Access rules** (`ContractAccess`):
+  - **Owners** may edit and comment as any party of theirs in the organisation, even one not attached to the contract. Approval and sign-off have no owner bypass: they belong to parties attached as editor or commenter (D2).
+  - **Content writes** need a party. Without one the action returns 422.
+  - **Agents** also need the matching token ability (`read`, `edit`, `comment`, `approve`).
+- **Error mapping:** each failure is an exception Laravel renders with the right status:
+  - `ModelNotFoundException`: 404. The contract isn't visible to the actor, or a step, phase or party belongs elsewhere.
+  - `AuthorizationException`: 403.
+  - `ContractLockedException`: 423.
+  - `StaleRevisionException` and `StaleFingerprintException`: 409.
+  - `InvalidActionException`: 422.
+- **Order of checks:** 404 → 403 → 423 → action-specific checks. For sign-off: required approver (403) → D10 (403) → stale fingerprint (409) → not ready (422).
+- **Plan refinements made while implementing:**
+  - `ApproveStep` takes the revision number the approver reviewed. It returns 409 if the content changed since then, and succeeds if the only difference is spacing (D11). This is the same "approve what you saw" rule as sign-off.
+  - Ready for sign-off also requires **at least one required approver**, otherwise nobody could ever sign off.
+  - States are always worked out from the data. "Back to draft" in §2 means approvals stop counting and sign-offs are invalidated. Archiving the last unapproved step can make a contract ready.
+  - A sign-off from a non-required party is rejected (403) rather than recorded and ignored.
+  - `StartNewVersion` also copies parties, roles, required approvers and `require_human_signoff`, because otherwise nobody but owners could see v2. Steps keep their original author, and their change note says which version they came from. Only agreed contracts can get a new version, and only once.
+  - `AttachParty` also changes an existing party's role. A party from another organisation is reported as missing (404).
+  - Identical edits, repeat approvals, repeat sign-offs and re-archiving are no-ops.
+- **Activity and events:**
+  - Every change writes one `activity_events` row through `ActivityLog`, using these types: `phase.created|renamed`, `phases.reordered`, `step.created|revised|moved|archived`, `steps.reordered`, `comment.added|resolved`, `approval.created|withdrawn`, `party.attached|role_changed|required_changed`, `signoff.created|withdrawn`, `signoffs.invalidated`, `contract.ready|no_longer_ready|agreed|version_started`.
+  - Each row fires **one** event class, `App\Events\ActivityRecorded`, which is dispatched only after the transaction commits. This replaces the per-type event classes in Phase 5.
+  - Polymorphic columns store stable short names (`step`, `party`, `user`, …; `Relation::enforceMorphMap`) instead of class names.
+- **Email normalisation:** the `App\Casts\NormalisedEmail` cast on `User::email` and `Invitation::email` trims and lowercases on every write. Fortify's `lowercase_usernames` already normalises login, registration, password reset and profile updates. Lookups must call `NormalisedEmail::normalise()`.
+- **Migration** `2026_11_13_090000_add_sequence_to_activity_events`: adds `activity_events.seq` and the `activity_sequencer` table.
+- **Tests:**
+  - `tests/Feature/Actions/*` covers plan tests 1, 2, 3, 4 (every row of the §2 change table), 5, 7, 8 and 13. It also covers roles and token abilities, outsiders getting 404, owner rules, the activity cursor, and the pinned fingerprint (`tests/Unit/ContractFingerprintTest.php`).
+  - `tests/Feature/EmailNormalisationTest.php` covers email normalisation.
+  - `tests/Concurrency/ConcurrentSignOffTest.php` (test 6) runs two real processes that sign off at the same instant, five rounds.
+  - Shared fixture: `tests/Support/Scenario.php`.
+- **Verified:**
+  - `composer test` on SQLite: Pint pass, Larastan 0 errors, 115 passed plus 1 skipped (concurrency).
+  - The same gate on MySQL 8.4: 116 passed.
+  - The concurrency test was checked by removing the contract lock: it then failed in the first round, because neither sign-off saw the other and the contract was never agreed. With the lock restored, it passed.
+- **Not in this phase:** creating organisations, projects, contracts and parties, and detaching parties. These belong to the owner screens in Phase 4.
 
 ### Phase 4: Livewire UI
 
@@ -189,8 +214,8 @@ This document records the agreed plan: v2, as amended by v3 and decisions D8–D
 ### Phase 5: live updates
 
 - Private channel `contract.{id}`, authorised by `ContractPolicy`.
-- Events: `StepRevised`, `StepMoved`, `CommentAdded`, `ApprovalChanged`, `ContractAgreed`, `ContractVersionStarted`, `ContractReadyForSignOff`, `ContractNoLongerReady`, `SignOffsInvalidated`.
-- Livewire components listen for these events. Broadcasting happens only after commit.
+- Event: `App\Events\ActivityRecorded` (one per activity row, dispatched after commit). Phase 5 makes it `ShouldBroadcast` on `contract.{id}`, and clients branch on `activity.type`. The readiness transitions are activity types (`contract.ready`, `contract.no_longer_ready`, `signoffs.invalidated`, `contract.agreed`), so they need no separate classes.
+- Livewire components listen for it. Broadcasting happens only after commit.
 
 ### Phase 6: human invitations
 
@@ -289,7 +314,7 @@ Phase 1 setup first. Then Phases 2–3 (data model and actions, including `Contr
 - **Markdown spacing that carries meaning.** Indentation can turn text into a code block or a nested list, and D11 treats that as a spacing-only edit, so it doesn't cancel approvals. This follows directly from D11. The revision is still recorded and its diff can be viewed.
 - **Prompt injection** through contract text read by agents.
 - **Sign-off races.** Handled by locking the contract row in `SignOffContract`. This can only be proven on MySQL or PostgreSQL (see "Database portability").
-- **Activity cursor gaps** on MySQL and PostgreSQL under concurrent writes (see "Database portability"). Must be designed in Phase 3.
+- **Activity cursor gaps** on MySQL and PostgreSQL under concurrent writes. Solved by the commit-order sequencer (see "Database portability"); the feed must page by `seq`, never by `id`.
 - **Sign-off loops** caused by agents that keep editing. A "freeze for sign-off" mode was deferred.
 - **Fingerprint stability.** Tests must pin it.
 - **Reverb** needs a supervised process in production.
@@ -302,4 +327,4 @@ Phase 1 setup first. Then Phases 2–3 (data model and actions, including `Contr
 - Run the app with `composer dev` (`php artisan dev`). It starts serve, `queue:listen`, Vite, and `reverb:start`; Reverb registers itself. Pail is skipped on Windows because it needs `pcntl`.
 - Repository: https://github.com/PatFox/Akord (public, MIT). Branch: `main`.
 - Fresh clone: run `composer setup`, then fill in `REVERB_APP_ID`, `REVERB_APP_KEY` and `REVERB_APP_SECRET` in `.env`; any random strings work locally. They are blank in `.env.example` so no keys are published.
-- Next: Phase 3 (actions), with tests 1–8 and 13 written alongside.
+- Next: Phase 4 (Livewire UI), including the owner screens for creating projects, contracts and parties.

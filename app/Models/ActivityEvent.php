@@ -4,6 +4,8 @@ namespace App\Models;
 
 use Database\Factories\ActivityEventFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Attributes\Scope;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -11,7 +13,8 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Carbon;
 
 /**
- * Timeline entry. The increasing id is the cursor for activity?since=.
+ * Timeline entry. `seq` (assigned after commit by ActivitySequencer) is the cursor
+ * for activity?since=; never page by `id`, which can commit out of order.
  *
  * @property int $id
  * @property int $organisation_id
@@ -22,6 +25,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $subject_type
  * @property int|null $subject_id
  * @property array<string, mixed>|null $payload
+ * @property int|null $seq
  * @property Carbon $created_at
  */
 #[Fillable(['organisation_id', 'contract_id', 'actor_party_id', 'actor_user_id', 'type', 'subject_type', 'subject_id', 'payload'])]
@@ -31,6 +35,28 @@ class ActivityEvent extends Model
     use HasFactory;
 
     public const UPDATED_AT = null;
+
+    /**
+     * Events on contracts the actor can see.
+     *
+     * @param  Builder<self>  $query
+     */
+    #[Scope]
+    protected function visibleTo(Builder $query, User|Party $actor): void
+    {
+        $query->whereHas('contract', fn (Builder $contracts) => $contracts->visibleTo($actor));
+    }
+
+    /**
+     * Sequenced events after a cursor, in commit order.
+     *
+     * @param  Builder<self>  $query
+     */
+    #[Scope]
+    protected function after(Builder $query, int $cursor): void
+    {
+        $query->whereNotNull('seq')->where('seq', '>', $cursor)->orderBy('seq');
+    }
 
     /**
      * @return array<string, string>

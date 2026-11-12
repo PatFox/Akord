@@ -48,10 +48,37 @@ class Contract extends Model
 
     /**
      * Agreed contracts are locked; only "start new version" may follow.
+     *
+     * @phpstan-impure reads mutable state (sign-off agrees the contract mid-transaction)
      */
     public function isAgreed(): bool
     {
         return $this->agreed_at !== null;
+    }
+
+    public function organisationId(): int
+    {
+        return $this->project->organisation_id;
+    }
+
+    /**
+     * A phase of this contract; any other id is "not found" (nested binding check).
+     */
+    public function findPhase(int $phaseId): Phase
+    {
+        return Phase::query()->whereKey($phaseId)->where('contract_id', $this->getKey())->firstOrFail();
+    }
+
+    /**
+     * A step of this contract, with its current revision; any other id is "not found".
+     */
+    public function findStep(int $stepId): Step
+    {
+        return Step::query()
+            ->with('currentRevision')
+            ->whereKey($stepId)
+            ->whereRelation('phase', 'contract_id', $this->getKey())
+            ->firstOrFail();
     }
 
     /**

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Casts\NormalisedEmail;
 use Database\Factories\InvitationFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -36,6 +37,7 @@ class Invitation extends Model
     protected function casts(): array
     {
         return [
+            'email' => NormalisedEmail::class,
             'expires_at' => 'datetime',
             'accepted_at' => 'datetime',
         ];

@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Casts\NormalisedEmail;
+use App\Enums\OrganisationRole;
 use Database\Factories\UserFactory;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -44,6 +46,7 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     protected function casts(): array
     {
         return [
+            'email' => NormalisedEmail::class,
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
         ];
@@ -77,5 +80,13 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     public function parties(): BelongsToMany
     {
         return $this->belongsToMany(Party::class)->withTimestamps();
+    }
+
+    public function isOwnerOf(int $organisationId): bool
+    {
+        return $this->organisations()
+            ->whereKey($organisationId)
+            ->wherePivot('role', OrganisationRole::Owner->value)
+            ->exists();
     }
 }
