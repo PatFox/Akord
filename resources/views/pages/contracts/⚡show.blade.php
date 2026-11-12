@@ -13,15 +13,18 @@ use App\Actions\Steps\ReorderSteps;
 use App\Enums\ContractAbility;
 use App\Livewire\Concerns\ActsOnContract;
 use App\Livewire\Concerns\RunsActions;
+use App\Models\ActivityEvent;
 use App\Models\Contract;
 use App\Models\Party;
 use App\Models\Phase;
 use App\Models\Step;
+use App\Support\ActivityDescription;
 use App\Support\ContractAccess;
 use App\Support\ReadinessReport;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\On;
 use Livewire\Component;
 
 new class extends Component {
@@ -29,8 +32,14 @@ new class extends Component {
 
     public Contract $contract;
 
-    /** Fingerprint of the state on screen; a sign-off submits exactly this. */
+    /** Fingerprint of the state the person reviewed; a sign-off submits exactly this. */
     public string $reviewedFingerprint = '';
+
+    /** Someone else changed the agreed content while this page was open. */
+    public bool $changedSinceReview = false;
+
+    /** @var list<int> activity ids received since the review went stale */
+    public array $changes = [];
 
     public string $newPhaseTitle = '';
 
@@ -129,6 +138,48 @@ new class extends Component {
     public function nextVersion(): ?Contract
     {
         return Contract::query()->where('previous_version_id', $this->contract->id)->first();
+    }
+
+    /**
+     * Live update from another person's change (Phase 5). The page re-renders; if the
+     * contract's fingerprint moved away from what this person reviewed, Sign off waits
+     * until they acknowledge the changes.
+     */
+    #[On('echo-private:contract.{contract.id},.activity')]
+    public function onActivity(array $event): void
+    {
+        $this->contract->refresh();
+        unset($this->report);
+
+        if (! $this->contract->isAgreed() && $this->report->fingerprint !== $this->reviewedFingerprint) {
+            $this->changedSinceReview = true;
+        }
+
+        if ($this->changedSinceReview && is_numeric($event['id'] ?? null)) {
+            $this->changes = array_slice(array_values(array_unique([...$this->changes, (int) $event['id']])), -20);
+        }
+    }
+
+    public function reviewAgain(): void
+    {
+        $this->changedSinceReview = false;
+        $this->changes = [];
+    }
+
+    /**
+     * @return list<string>
+     */
+    #[Computed]
+    public function changeDescriptions(): array
+    {
+        return ActivityEvent::query()
+            ->where('contract_id', $this->contract->id)
+            ->whereIn('id', $this->changes)
+            ->with(['actorUser', 'actorParty', 'subject'])
+            ->orderBy('id')
+            ->get()
+            ->map(fn (ActivityEvent $event) => ActivityDescription::for($event))
+            ->all();
     }
 
     public function signOff(): void
@@ -239,8 +290,10 @@ new class extends Component {
     {
         // Actions may have changed the contract during this request.
         $this->contract->refresh();
-        unset($this->report, $this->phases, $this->requiredParties, $this->approved, $this->archivedCount, $this->canEdit, $this->actingIsRequired, $this->actingHasSignedOff, $this->nextVersion);
-        $this->reviewedFingerprint = $this->report->fingerprint;
+        unset($this->report, $this->changeDescriptions, $this->phases, $this->requiredParties, $this->approved, $this->archivedCount, $this->canEdit, $this->actingIsRequired, $this->actingHasSignedOff, $this->nextVersion);
+        if (! $this->changedSinceReview) {
+            $this->reviewedFingerprint = $this->report->fingerprint;
+        }
 
         return $this->view()->title($this->contract->title.' v'.$this->contract->version);
     }
@@ -312,6 +365,8 @@ new class extends Component {
                     @if ($this->actingHasSignedOff)
                         <flux:badge color="green" icon="check">{{ __('You signed off') }}</flux:badge>
                         <flux:button size="sm" variant="ghost" wire:click="withdrawSignOff">{{ __('Withdraw') }}</flux:button>
+                    @elseif ($changedSinceReview)
+                        <flux:button variant="primary" disabled data-test="sign-off-button">{{ __('Contract changed; review again') }}</flux:button>
                     @else
                         <flux:button variant="primary" wire:click="signOff" :disabled="! $this->report->isReady()" data-test="sign-off-button">
                             {{ __('Sign off contract') }}
@@ -320,6 +375,21 @@ new class extends Component {
                 </div>
             @endif
         </div>
+
+        @if ($changedSinceReview && ! $contract->isAgreed())
+            <flux:callout icon="arrow-path" color="amber" :heading="__('The contract changed while you were reviewing it')" data-test="changed-since-review">
+                <flux:callout.text>
+                    <ul class="list-disc ps-5">
+                        @foreach ($this->changeDescriptions as $description)
+                            <li>{{ $description }}</li>
+                        @endforeach
+                    </ul>
+                </flux:callout.text>
+                <x-slot name="actions">
+                    <flux:button size="sm" wire:click="reviewAgain">{{ __('I have reviewed the changes') }}</flux:button>
+                </x-slot>
+            </flux:callout>
+        @endif
 
         @if ($this->requiredParties->isNotEmpty())
             <div class="flex flex-wrap gap-2">

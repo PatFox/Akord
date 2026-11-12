@@ -247,11 +247,33 @@ This document records the agreed plan: v2, as amended by v3 and decisions D8–D
 - **Verified:** `composer test` on SQLite gives Pint pass, Larastan 0 errors, 138 passed plus 1 skipped. On MySQL 8.4, all 139 pass. Every page was checked in a browser against the demo data, including a real drag between phases saved to the database and the editor preview stripping `<script>` and `javascript:` links.
 - PHPStan ignores `trait.unused` for `app/Livewire/Concerns/*`: those traits are used only by single-file pages, which it cannot parse.
 
-### Phase 5: live updates
+### Phase 5: live updates ✅ done 2026-11-13
 
-- Private channel `contract.{id}`, authorised by `ContractPolicy`.
-- Event: `App\Events\ActivityRecorded` (one per activity row, dispatched after commit). Phase 5 makes it `ShouldBroadcast` on `contract.{id}`, and clients branch on `activity.type`. The readiness transitions are activity types (`contract.ready`, `contract.no_longer_ready`, `signoffs.invalidated`, `contract.agreed`), so they need no separate classes.
-- Livewire components listen for it. Broadcasting happens only after commit.
+- **Broadcasting:**
+  - `App\Events\ActivityRecorded` is `ShouldBroadcast` + `ShouldDispatchAfterCommit`. It is queued after commit, so an unavailable Reverb never fails an action.
+  - Channel: `PrivateChannel('contract.{id}')`. Name: `activity`.
+  - Payload: ids and type only (`id`, `type`, `contract_id`, `subject_type`, `subject_id`), never contract text. Pages reload what they show through their normal access checks.
+  - Delivery needs the queue worker, which `composer dev` already runs, and Reverb.
+- **Channel authorisation** (`routes/channels.php`): `contract.{contract}` allows anyone `ContractPolicy::view` allows, so outsiders get 403 from `/broadcasting/auth`. Agents don't use websockets; they poll `activity?since=` (Q6, Phase 7).
+- **Contract page:**
+  - Listens on `echo-private:contract.{id},.activity` and re-renders on every event.
+  - If the fingerprint moved away from the one the person was reviewing, the reviewed fingerprint is frozen, and **Sign off** becomes "Contract changed; review again". A callout lists what changed and who changed it.
+  - "I have reviewed the changes" accepts the new state. A forced sign-off while frozen would submit the old fingerprint and get 409.
+  - Changes that leave the fingerprint alone (approvals, comments, reordering) just update the page.
+- **Step page:** re-renders live. If someone saves a revision while this person is editing, the conflict banner appears immediately, with the draft kept.
+- `App\Support\ActivityDescription` turns an activity row into a sentence ("Alice Archer edited “Build the API”") for the change list. Phase 8 notifications can reuse it.
+- **Not live:** organisation and project lists, which still need a reload.
+- **Tests:** `tests/Feature/LiveUpdatesTest.php`:
+  - Channel authorisation through a real `/broadcasting/auth` request with the Reverb driver: a member gets 200, an outsider 403.
+  - The broadcast's channel, name and text-free payload.
+  - The review gate holding sign-off until acknowledged.
+  - An approval elsewhere updating the page without the gate.
+  - The early edit conflict.
+  - The Livewire tests dispatch the real `echo-private:contract.{id},.activity` event name.
+- **Verified:**
+  - `composer test` on SQLite: Pint pass, Larastan 0 errors, 143 passed plus 1 skipped.
+  - MySQL 8.4: 144 passed.
+  - **End to end in a browser** (queue worker → Reverb → Echo → Livewire): with Alice's page open, approvals made elsewhere switched it to "Ready for sign-off" without a reload. A step added by the owner then showed the gate with "Test User added step “Late addition”".
 
 ### Phase 6: human invitations
 
@@ -363,4 +385,4 @@ Phase 1 setup first. Then Phases 2–3 (data model and actions, including `Contr
 - Run the app with `composer dev` (`php artisan dev`). It starts serve, `queue:listen`, Vite, and `reverb:start`; Reverb registers itself. Pail is skipped on Windows because it needs `pcntl`.
 - Repository: https://github.com/PatFox/Akord (public, MIT). Branch: `main`.
 - Fresh clone: run `composer setup`, then fill in `REVERB_APP_ID`, `REVERB_APP_KEY` and `REVERB_APP_SECRET` in `.env`; any random strings work locally. They are blank in `.env.example` so no keys are published.
-- Next: Phase 5 (live updates), which broadcasts `ActivityRecorded` and disables Sign off when the fingerprint changes.
+- Next: Phase 6 (human invitations).

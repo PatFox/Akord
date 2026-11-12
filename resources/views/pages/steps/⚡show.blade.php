@@ -23,6 +23,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\On;
 use Livewire\Component;
 
 new class extends Component {
@@ -163,6 +164,21 @@ new class extends Component {
         $to = $this->revisions->firstWhere('number', $this->compareTo);
 
         return $from && $to ? RevisionDiff::html($from, $to) : null;
+    }
+
+    /**
+     * Live update (Phase 5): the page re-renders; if someone saved a revision while this
+     * person is editing, the conflict banner appears before they try to save.
+     */
+    #[On('echo-private:contract.{contract.id},.activity')]
+    public function onActivity(array $event): void
+    {
+        $this->step->refresh();
+        unset($this->current);
+
+        if ($this->editing && $this->conflictWith === null && $this->current->number !== $this->baseRevision) {
+            $this->conflictWith = $this->current->number;
+        }
     }
 
     public function edit(): void
