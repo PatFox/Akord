@@ -198,18 +198,54 @@ This document records the agreed plan: v2, as amended by v3 and decisions D8–D
   - `composer test` on SQLite: Pint pass, Larastan 0 errors, 115 passed plus 1 skipped (concurrency).
   - The same gate on MySQL 8.4: 116 passed.
   - The concurrency test was checked by removing the contract lock: it then failed in the first round, because neither sign-off saw the other and the contract was never agreed. With the lock restored, it passed.
-- **Not in this phase:** creating organisations, projects, contracts and parties, and detaching parties. These belong to the owner screens in Phase 4.
+- **Not in this phase:** creating organisations, projects, contracts and parties, and detaching parties. These were done in Phase 4.
 
-### Phase 4: Livewire UI
+### Phase 4: Livewire UI ✅ done 2026-11-13
 
-- Organisation switcher → projects → contracts, filtered by visibility.
-- **Contract page:** phases and steps with drag-to-reorder, an approval matrix (steps × required parties), and a status badge.
-- **Step panel:** Markdown editor with preview, a notice when your approval was cancelled, comment threads, and revision history with a word-level diff between any two revisions (`jfcherng/php-diff`).
-- **Owner screens:** parties, roles, required approvers, invitations, agents, versions, and the `require_human_signoff` toggle.
-- **Markdown rendering:** `league/commonmark` with raw HTML stripped and unsafe links blocked.
-- **Header panel:**
-  - Shows the state badge, outstanding approvals, which parties have signed off, and a "Sign off contract" button that submits the displayed fingerprint.
-  - When a live update reports a fingerprint change, the button is disabled with "Contract changed; review again".
+- **Pages** (Livewire 4 single-file pages under `resources/views/pages`, routes in `routes/web.php`, all behind `auth` + `verified`):
+  - `/dashboard`: your organisations (owned or invited), and a form to create one.
+  - `/orgs/{slug}`: projects you can see, an organisation switcher, and an owner form for new projects.
+  - `/orgs/{slug}/parties` (owners): create individual, team or agent parties, and join or leave them.
+  - `/orgs/{slug}/projects/{id}`: contracts with their state and superseded versions, and an owner form for new contracts.
+  - `/contracts/{id}`:
+    - Header panel: state badge, outstanding approvals, required parties and who has signed off, and **Sign off** (it submits the fingerprint of the state on screen) or Withdraw.
+    - Phases: up/down buttons and rename.
+    - Steps: tables that double as the **approval matrix** (step × required party). Steps can be dragged to reorder within a phase or to move between phases (Livewire 4 `wire:sort` with handles; checked in a real browser).
+    - Inline "add step" and "add phase" forms, the locked banner with "Start new version", and links between versions.
+  - `/contracts/{id}/steps/{id}` (scoped binding: a step from another contract is 404):
+    - Approvals, and **Approve revision N** for the revision on screen.
+    - The "your approval was cancelled" notice.
+    - A Markdown editor with Write/Preview.
+    - **Edit conflicts:** a "changed while you were editing" banner keeps the draft and shows the latest text. "Edit on top of revision N" then saves.
+    - Archive, comment threads (question/suggestion/general, replies, resolve), and revision history (marking spacing-only revisions) with a word-level diff between any two revisions.
+  - `/contracts/{id}/settings` (owners): attached parties with role selects, required-approver toggles and detach; attach a party; the `require_human_signoff` switch; the version list and "Start new version".
+- **Acting as:** `App\Support\ActingParties` lists the parties a person may act for on a contract. These are their attached parties, best role first, plus, for owners, their other parties in the organisation. The choice is remembered per contract in the session and re-validated on every request. Pages show a selector when there is more than one.
+- **Shared pieces:**
+  - `App\Livewire\Concerns\ActsOnContract` reloads and re-authorises the contract on every request.
+  - `RunsActions` turns 403/404/409/422/423 into toasts.
+  - `ContractPolicy` (`view` → 404 when not visible, `administer` → 403 for non-owners).
+  - `Organisation::visibleTo()`.
+  - `<x-markdown>`, `<x-contract-breadcrumbs>`, `<x-acting-as>`.
+- **Markdown:** `App\Support\Markdown` (GitHub-flavoured CommonMark, `html_input: strip`, `allow_unsafe_links: false`), styled with `@tailwindcss/typography`. **Diffs:** `App\Support\RevisionDiff` (`jfcherng/php-diff`, Combined renderer, word level, escaped).
+- **New actions:**
+  - `Organisations/{CreateOrganisation, CreateProject, CreateContract, CreateParty, SetOwnPartyMembership}`. `CreateOrganisation` makes the creator owner and gives them a personal party, because content edits are always made as a party.
+  - `Contracts/{DetachParty, SetHumanSignOffRequired}`. A required approver must be un-required before it can be detached.
+  - Organisation-level actions are owner-only through `OrganisationAccess::ensureOwner()` (404 if not visible, 403 if not owner). They write no activity rows, because the timeline is per contract.
+- **Demo data:** `php artisan db:seed --class=DemoSeeder` builds an organisation through the real actions: a draft "Payments API" contract with revisions, comments and partial approvals, and an agreed "Auth integration" contract. Logins are `test@example.com` (owner), `alice@example.com` (API team) and `bob@example.com` (App team), all with password `password`.
+- **Deferred to the phase that builds the feature:**
+  - **Invitation and agent screens** belong in Phases 6 and 7. Until then, owners add only themselves to parties; the demo seeder sets other members directly.
+  - **Disabling Sign off on a live fingerprint change** needs Phase 5. Until then, a stale sign-off is refused (409) with a toast, and the page re-renders the new state.
+- **Tests:** `tests/Feature/Pages/*`, 23 tests:
+  - Plan test 9 for web routes: outsiders get 404 on every page, members get 403 on owner screens, a step under the wrong contract gets 404, guests are redirected.
+  - Owner creation flows.
+  - Sign-off from the page, and a stale on-screen state recording nothing.
+  - Drag reorder and move; acting-as switching limited to the person's own parties; viewers see no edit controls.
+  - Plan test 8 in Livewire: conflict banner, draft kept, rebase-and-save.
+  - The cancelled-approval notice.
+  - Markdown safety (no raw HTML, `javascript:` links, `onerror`, `iframe`); diff highlighting and escaping; comment, reply and resolve.
+  - Settings: roles, required approvers, detach rules, the human sign-off switch, a new version.
+- **Verified:** `composer test` on SQLite gives Pint pass, Larastan 0 errors, 138 passed plus 1 skipped. On MySQL 8.4, all 139 pass. Every page was checked in a browser against the demo data, including a real drag between phases saved to the database and the editor preview stripping `<script>` and `javascript:` links.
+- PHPStan ignores `trait.unused` for `app/Livewire/Concerns/*`: those traits are used only by single-file pages, which it cannot parse.
 
 ### Phase 5: live updates
 
@@ -327,4 +363,4 @@ Phase 1 setup first. Then Phases 2–3 (data model and actions, including `Contr
 - Run the app with `composer dev` (`php artisan dev`). It starts serve, `queue:listen`, Vite, and `reverb:start`; Reverb registers itself. Pail is skipped on Windows because it needs `pcntl`.
 - Repository: https://github.com/PatFox/Akord (public, MIT). Branch: `main`.
 - Fresh clone: run `composer setup`, then fill in `REVERB_APP_ID`, `REVERB_APP_KEY` and `REVERB_APP_SECRET` in `.env`; any random strings work locally. They are blank in `.env.example` so no keys are published.
-- Next: Phase 4 (Livewire UI), including the owner screens for creating projects, contracts and parties.
+- Next: Phase 5 (live updates), which broadcasts `ActivityRecorded` and disables Sign off when the fingerprint changes.

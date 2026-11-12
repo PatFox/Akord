@@ -5,6 +5,8 @@ namespace App\Models;
 use App\Enums\OrganisationRole;
 use Database\Factories\OrganisationFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Attributes\Scope;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -23,6 +25,21 @@ class Organisation extends Model
 {
     /** @use HasFactory<OrganisationFactory> */
     use HasFactory;
+
+    /**
+     * Organisations the user owns, or in which they can see at least one contract.
+     *
+     * @param  Builder<self>  $query
+     */
+    #[Scope]
+    protected function visibleTo(Builder $query, User $user): void
+    {
+        $query->where(fn (Builder $query) => $query
+            ->whereHas('users', fn (Builder $users) => $users
+                ->whereKey($user->getKey())
+                ->where('organisation_user.role', OrganisationRole::Owner->value))
+            ->orWhereHas('projects.contracts', fn (Builder $contracts) => $contracts->visibleTo($user)));
+    }
 
     /**
      * @return BelongsToMany<User, $this>

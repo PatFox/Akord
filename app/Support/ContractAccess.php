@@ -74,6 +74,20 @@ final class ContractAccess
     }
 
     /**
+     * Whether authorize() would pass; for deciding which controls to show.
+     */
+    public static function allows(Actor $actor, Contract $contract, ContractAbility $ability): bool
+    {
+        try {
+            self::authorize($actor, $contract, $ability);
+        } catch (AuthorizationException|InvalidActionException|ModelNotFoundException) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
      * The party the actor acts for, after checking a person belongs to it.
      *
      * @throws AuthorizationException

@@ -11,3 +11,10 @@ parameters:
         - routes/
 
     level: 7
+
+    ignoreErrors:
+        # These traits are used only by Livewire single-file pages in resources/views,
+        # which PHPStan cannot parse.
+        -
+            identifier: trait.unused
+            path: app/Livewire/Concerns/*
