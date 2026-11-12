@@ -404,8 +404,14 @@ new class extends Component {
         @forelse ($this->threads as $comment)
             <flux:card class="space-y-2" wire:key="comment-{{ $comment->id }}">
                 <div class="flex flex-wrap items-center gap-2 text-sm">
-                    <strong>{{ $comment->authorUser?->name ?? $comment->authorParty->name }}</strong>
-                    <flux:text size="sm">{{ $comment->authorParty->name }} · {{ __('on revision :n', ['n' => $comment->revision->number]) }} · {{ $comment->created_at?->diffForHumans() }}</flux:text>
+                    @if ($comment->authorUser)
+                        <strong>{{ $comment->authorUser->name }}</strong>
+                        <flux:text size="sm">{{ $comment->authorParty->name }} · {{ __('on revision :n', ['n' => $comment->revision->number]) }} · {{ $comment->created_at?->diffForHumans() }}</flux:text>
+                    @else
+                        <strong>{{ $comment->authorParty->name }}</strong>
+                        <flux:badge size="sm" color="purple">{{ __('Agent') }}</flux:badge>
+                        <flux:text size="sm">{{ __('on revision :n', ['n' => $comment->revision->number]) }} · {{ $comment->created_at?->diffForHumans() }}</flux:text>
+                    @endif
                     <flux:badge size="sm" :color="match ($comment->kind->value) { 'question' => 'sky', 'suggestion' => 'amber', default => 'zinc' }">{{ ucfirst($comment->kind->value) }}</flux:badge>
                     @if ($comment->resolved_at)
                         <flux:badge size="sm" color="green" icon="check">{{ __('Resolved') }}</flux:badge>
@@ -415,7 +421,7 @@ new class extends Component {
 
                 @foreach ($comment->replies as $reply)
                     <div class="ms-4 border-s-2 border-zinc-200 ps-3 dark:border-zinc-700" wire:key="reply-{{ $reply->id }}">
-                        <flux:text size="sm"><strong>{{ $reply->authorUser?->name ?? $reply->authorParty->name }}</strong> · {{ $reply->created_at?->diffForHumans() }}</flux:text>
+                        <flux:text size="sm"><strong>{{ $reply->authorUser->name ?? $reply->authorParty->name }}</strong>@unless ($reply->authorUser) ({{ __('agent') }})@endunless · {{ $reply->created_at?->diffForHumans() }}</flux:text>
                         <x-markdown :source="$reply->body_md" />
                     </div>
                 @endforeach
@@ -467,7 +473,7 @@ new class extends Component {
                 <div class="flex flex-wrap items-center justify-between gap-2 px-3 py-2" wire:key="rev-{{ $revision->id }}">
                     <span>
                         <strong>{{ __('Revision :n', ['n' => $revision->number]) }}</strong>
-                        · {{ $revision->authorUser?->name ?? $revision->authorParty->name }} ({{ $revision->authorParty->name }})
+                        · @if ($revision->authorUser){{ $revision->authorUser->name }} ({{ $revision->authorParty->name }})@else{{ $revision->authorParty->name }} ({{ __('agent') }})@endif
                         · {{ $revision->created_at?->toDayDateTimeString() }}
                         @if ($revision->change_note) · <em>{{ $revision->change_note }}</em>@endif
                     </span>

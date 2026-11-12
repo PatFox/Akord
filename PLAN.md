@@ -307,25 +307,41 @@ This document records the agreed plan: v2, as amended by v3 and decisions D8–D
   - End to end with a real email (Mailpit): the owner invited carol@example.com into "Guest reviewer". The email arrived with its link; Carol opened it as a guest, registered, came back, accepted, verified her email, and saw only that contract (the other two returned 404). Reopening the link said it had already been used.
 - **Local mail:** this machine's `.env` sends SMTP to the Mailpit server at `192.168.1.205:1025` (no username or password). `.env.example` keeps the generic `127.0.0.1:1025`; for a local Mailpit, run `docker run -d --rm --name akord-mailpit -p 127.0.0.1:1025:1025 -p 127.0.0.1:8026:8025 axllent/mailpit`.
 
-### Phase 7: agents
+### Phase 7: agents ✅ done 2026-11-13
 
+- **Identity:** agents authenticate as their agent `Party`. `Party` uses Sanctum's `HasApiTokens` and implements `Authenticatable`, which `laravel/mcp` requires of the caller; parties have no password and cannot log in to the web app. `config/sanctum.php` sets `guard => []`, so the API accepts bearer tokens only, never browser sessions.
 - **Onboarding:**
-  - An owner creates an agent party and a one-time claim code, shown once.
-  - The agent calls `POST /api/v1/agent/claim` and receives a Sanctum token.
-  - The owner can see last-used time and revoke the token.
-- **REST API** under `/api/v1/...`:
-  - Contracts: list, detail, and export (`?format=md|json`).
-  - Steps, revisions and diffs; comments; approve and withdraw.
-  - `activity?since=<cursor>`.
-  - `GET /api/v1/contracts/{id}/status`: state, fingerprint, what is outstanding, and sign-offs.
-  - `POST /api/v1/contracts/{id}/signoffs` with body `{fingerprint}`: returns `409`, `422`, `423`, or `403` (D10).
-  - `DELETE /api/v1/contracts/{id}/signoffs/mine`.
-  - Errors: `409` for conflicts, `423` for locked contracts.
-- **MCP** (`routes/ai.php`, `app/Mcp/Servers/ContractServer.php`, `app/Mcp/Tools/*`), using the same token:
-  - Read: `list_contracts`, `get_contract`, `get_step`, `get_step_history`, `get_activity_since`, `get_contract_status`.
-  - Write: `revise_step`, `add_comment`, `approve_step`, `withdraw_approval`, `sign_off_contract`, `withdraw_signoff`.
-- Per-agent rate limits.
-- Replies mark contract content clearly as data, as a defence against prompt injection.
+  - On `/orgs/{slug}/parties/{party}/agent` (owners only, agent parties only), the owner picks abilities. `read` is always granted; `comment`, `edit` and `approve` (which covers sign-off) are optional.
+  - Generating a claim code (`AKD-XXXXX-XXXXX-XXXXX-XXXXX`, about 100 bits, no ambiguous characters) shows it **once**; only its hash is stored. It expires after `akord.agents.claim_code_hours` (24) hours.
+  - The agent calls `POST /api/v1/agent/claim {code, name}`. Case, spaces and dashes in the code are ignored, and the code works once (row locked; unknown 404, used or expired 410). The reply holds the token, its abilities, the party, and the API and MCP URLs.
+  - The page lists recent codes, and each token's abilities and last use, with **Revoke** (the next request gets 401).
+- **REST API** (`routes/api.php`, `app/Http/Controllers/Api/V1/*`), bearer token, `throttle:agent`:
+  - `GET agent` (who am I, abilities), `GET contracts`, `GET contracts/{id}[?format=md]`, `GET contracts/{id}/status`.
+  - `GET contracts/{id}/steps/{id}`, `PUT contracts/{id}/steps/{id} {base_revision, title, description_md, change_note?}` (409 if stale), `GET …/revisions`, `GET …/diff?from=&to=` (unified diff).
+  - `POST …/comments {kind, body_md, parent_id?}`, `POST|DELETE …/approval {revision}` (409 if the content changed since that revision).
+  - `POST contracts/{id}/signoffs {fingerprint}` (409/422/423/403), `DELETE contracts/{id}/signoffs/mine`.
+  - `GET activity?since=&limit=`: runs `ActivitySequencer` first, pages by `seq`, returns `next_cursor`.
+  - Replies are `{"data": …, "notice": …}`; errors are JSON with the status codes above (401 for no or revoked token, 404 for contracts the agent can't see).
+- **MCP server** (`routes/ai.php` → `POST /mcp`, `app/Mcp/Servers/ContractServer.php`, `app/Mcp/Tools/*`), same tokens and limiter:
+  - Read tools (annotated read-only): `list_contracts`, `get_contract` (json or markdown), `get_contract_status`, `get_step`, `get_step_history` (optional diff), `get_activity_since`.
+  - Write tools: `revise_step`, `add_comment`, `approve_step`, `withdraw_approval`, `sign_off_contract`, `withdraw_signoff`.
+  - The server's instructions explain approving and signing off what was reviewed. Refusals come back as tool errors prefixed with the status ("409: …").
+- **One implementation:** `App\Support\Agents\AgentApi` performs every operation for both REST and MCP, through the Phase 3 actions. `AgentPresenter` shapes the data, `ContractMarkdown` builds the export, and `AgentActor` turns a token into `Actor::agent($party, $token->abilities)`. Abilities are checked per action (403), on top of the party's role on each contract.
+- **Prompt injection:** everything participants wrote is nested under `content` keys, and REST replies carry a notice that those fields are data. MCP replies start with the notice and put the data inside `<contract-data>…</contract-data>`, encoded with `JSON_HEX_TAG`, so text containing `</contract-data>` cannot close the block.
+- **Rate limits** (`AppServiceProvider`): `agent` allows `akord.agents.requests_per_minute` (120) per agent party across REST and MCP; `agent-claim` allows 10 per minute per IP. `config/akord.php` holds both settings.
+- **UI:** the parties page links agent parties to Agent access. Agent-written comments and revisions show the party once, with an "Agent" badge.
+- **Tooling:** `composer types:check` now runs PHPStan with `--memory-limit=1G`, because 128 MB was no longer enough.
+- **Tests:** `tests/Feature/Agents/*`, 22 tests. They use real bearer tokens over HTTP (`tests/Support/AgentClient.php`, which resets auth guards between requests so revocation is really tested):
+  - Plan test 12: a claim code works once, ignoring case and dashes; expired codes get 410, unknown codes 404; a revoked token gets 401.
+  - Plan test 10: a missing ability gives 403 over REST and MCP.
+  - Plan test 9 for the API: an agent outside the contract gets 404 on contract, status, step, sign-off and MCP, and an empty list and activity feed.
+  - A browser session can't use the API. Owner-only codes and page. The code is shown once, and revoking works from the page.
+  - Per-agent rate limits.
+  - REST flows: reading with `content` and the notice, the Markdown export, approval conflicts, revise and comment, the diff, sign-off 422/409/201/423, D10 403, the activity cursor.
+  - MCP: the 12 tools listed, the `</contract-data>` escape, errors with statuses, 401 without a token.
+- **Verified:**
+  - `composer test` on SQLite: Pint pass, Larastan 0 errors, 174 passed plus 1 skipped.
+  - End to end against the running app: claimed a token for "Review bot" with curl (lowercase, no dashes); a second claim got 410. Listed contracts over REST and over MCP JSON-RPC (handshake, tools listed, a call). The bot commented through MCP, the owner saw it on the step page, and revoking on the Agent access page made REST and MCP return 401.
 
 ### Phase 8: notifications (queued, email and in-app)
 
@@ -412,4 +428,4 @@ Phase 1 setup first. Then Phases 2–3 (data model and actions, including `Contr
 - **After changing `.env`, restart `composer dev` completely.** `artisan dev` loads `.env` into its own environment and its child processes inherit it as real environment variables, which `.env` never overrides. So `serve`'s automatic "Environment modified. Restarting server" keeps the old values. This is how invitation mail kept going to the old `MAIL_HOST` until a full restart. One-off commands (`tinker`, tests) read `.env` fresh, so they can disagree with a running server.
 - Repository: https://github.com/PatFox/Akord (public, MIT). Branch: `main`.
 - Fresh clone: run `composer setup`, then fill in `REVERB_APP_ID`, `REVERB_APP_KEY` and `REVERB_APP_SECRET` in `.env`; any random strings work locally. They are blank in `.env.example` so no keys are published.
-- Next: Phase 7 (agents): claim codes, Sanctum tokens, the REST API and the MCP server.
+- Next: Phase 8 (notifications).

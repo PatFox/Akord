@@ -107,11 +107,13 @@ new class extends Component {
                     <flux:table.cell>{{ $party->isAgent() ? '—' : ($party->users->pluck('name')->join(', ') ?: __('None')) }}</flux:table.cell>
                     <flux:table.cell>{{ $party->contracts_count }}</flux:table.cell>
                     <flux:table.cell align="end">
-                        @unless ($party->isAgent())
+                        @if ($party->isAgent())
+                            <flux:button size="xs" icon="key" :href="route('organisations.agent', ['organisation' => $organisation, 'party' => $party])" wire:navigate>{{ __('Agent access') }}</flux:button>
+                        @else
                             <flux:button size="xs" variant="{{ $isMember ? 'ghost' : 'filled' }}" wire:click="setMembership({{ $party->id }}, {{ $isMember ? 'false' : 'true' }})">
                                 {{ $isMember ? __('Leave') : __('Join') }}
                             </flux:button>
-                        @endunless
+                        @endif
                     </flux:table.cell>
                 </flux:table.row>
             @endforeach

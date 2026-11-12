@@ -12,6 +12,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     Route::livewire('orgs/{organisation:slug}', 'pages::organisations.show')->name('organisations.show');
     Route::livewire('orgs/{organisation:slug}/parties', 'pages::organisations.parties')->name('organisations.parties');
+    Route::livewire('orgs/{organisation:slug}/parties/{party}/agent', 'pages::organisations.agent')->name('organisations.agent');
     Route::livewire('orgs/{organisation:slug}/projects/{project}', 'pages::projects.show')
         ->scopeBindings()
         ->name('projects.show');

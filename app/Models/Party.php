@@ -4,6 +4,8 @@ namespace App\Models;
 
 use App\Enums\PartyType;
 use Database\Factories\PartyFactory;
+use Illuminate\Auth\Authenticatable;
+use Illuminate\Contracts\Auth\Authenticatable as AuthenticatableContract;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -11,6 +13,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
+use Laravel\Sanctum\HasApiTokens;
 
 /**
  * @property int $id
@@ -21,8 +24,12 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $updated_at
  */
 #[Fillable(['organisation_id', 'name', 'type'])]
-class Party extends Model
+class Party extends Model implements AuthenticatableContract
 {
+    // Agent parties authenticate to the API and MCP server with Sanctum tokens
+    // (the token's "user" is the party). Parties have no password: they never log in to the web app.
+    use Authenticatable, HasApiTokens;
+
     /** @use HasFactory<PartyFactory> */
     use HasFactory;
 

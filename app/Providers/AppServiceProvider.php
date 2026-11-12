@@ -17,9 +17,12 @@ use App\Models\Step;
 use App\Models\StepRevision;
 use App\Models\User;
 use Carbon\CarbonImmutable;
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Relations\Relation;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
 
@@ -39,6 +42,19 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->configureDefaults();
+        $this->configureRateLimits();
+    }
+
+    /**
+     * Agents are limited per party (not per IP), across the REST API and MCP server.
+     * The public claim endpoint is limited per IP.
+     */
+    protected function configureRateLimits(): void
+    {
+        RateLimiter::for('agent', fn (Request $request) => Limit::perMinute((int) config('akord.agents.requests_per_minute'))
+            ->by('agent-party:'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
+
+        RateLimiter::for('agent-claim', fn (Request $request) => Limit::perMinute(10)->by('agent-claim:'.$request->ip()));
     }
 
     /**

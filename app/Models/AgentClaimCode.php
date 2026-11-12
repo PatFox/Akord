@@ -16,12 +16,14 @@ use Illuminate\Support\Carbon;
  * @property int $id
  * @property int $party_id
  * @property string $code_hash
+ * @property list<string>|null $abilities
+ * @property int|null $created_by
  * @property Carbon $expires_at
  * @property Carbon|null $claimed_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['party_id', 'code_hash', 'expires_at', 'claimed_at'])]
+#[Fillable(['party_id', 'code_hash', 'abilities', 'created_by', 'expires_at', 'claimed_at'])]
 #[Hidden(['code_hash'])]
 class AgentClaimCode extends Model
 {
@@ -34,9 +36,20 @@ class AgentClaimCode extends Model
     protected function casts(): array
     {
         return [
+            'abilities' => 'array',
             'expires_at' => 'datetime',
             'claimed_at' => 'datetime',
         ];
+    }
+
+    /**
+     * Codes are shown as AKD-XXXXX-XXXXX-XXXXX-XXXXX; case, spaces and dashes don't matter.
+     */
+    public static function hashCode(string $code): string
+    {
+        $normalised = strtoupper((string) preg_replace('/[^A-Za-z0-9]/', '', $code));
+
+        return hash('sha256', $normalised);
     }
 
     /**

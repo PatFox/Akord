@@ -22,6 +22,14 @@ final class RevisionDiff
         );
     }
 
+    /**
+     * Plain-text unified diff, for agents.
+     */
+    public static function unified(StepRevision $from, StepRevision $to): string
+    {
+        return DiffHelper::calculate(self::text($from), self::text($to), 'Unified', ['context' => 3, 'ignoreLineEnding' => true], ['cliColorization' => 0]);
+    }
+
     public static function styles(): string
     {
         return DiffHelper::getStyleSheet();

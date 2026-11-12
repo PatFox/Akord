@@ -37,7 +37,8 @@ return [
     |
     */
 
-    'guard' => ['web'],
+    // Akord's API is for agent tokens only: never authenticate API calls from a browser session.
+    'guard' => [],
 
     /*
     |--------------------------------------------------------------------------
