@@ -305,7 +305,7 @@ This document records the agreed plan: v2, as amended by v3 and decisions D8–D
 - **Verified:**
   - `composer test` on SQLite: Pint pass, Larastan 0 errors, 152 passed plus 1 skipped.
   - End to end with a real email (Mailpit): the owner invited carol@example.com into "Guest reviewer". The email arrived with its link; Carol opened it as a guest, registered, came back, accepted, verified her email, and saw only that contract (the other two returned 404). Reopening the link said it had already been used.
-- **Local mail:** `.env` sends SMTP to Mailpit on `127.0.0.1:1025`. Start it with `docker run -d --rm --name akord-mailpit -p 127.0.0.1:1025:1025 -p 127.0.0.1:8026:8025 axllent/mailpit`; the inbox is at http://localhost:8026. Port 8025 was taken by another container on this machine.
+- **Local mail:** this machine's `.env` sends SMTP to the Mailpit server at `192.168.1.205:1025` (no username or password). `.env.example` keeps the generic `127.0.0.1:1025`; for a local Mailpit, run `docker run -d --rm --name akord-mailpit -p 127.0.0.1:1025:1025 -p 127.0.0.1:8026:8025 axllent/mailpit`.
 
 ### Phase 7: agents
 
