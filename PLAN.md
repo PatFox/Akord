@@ -300,5 +300,6 @@ Phase 1 setup first. Then Phases 2–3 (data model and actions, including `Contr
 - PHP 8.3.23 (NTS x64), with pdo_sqlite, sqlite3, intl, mbstring, sodium, sockets, zip, bcmath, gd, openssl and curl. Composer 2.8.4, Node v24.20.0, npm 11.19.0, git 2.44.0.
 - The global `laravel` installer is broken in bash. Use `composer create-project` instead, or call the installer through `php`.
 - Run the app with `composer dev` (`php artisan dev`). It starts serve, `queue:listen`, Vite, and `reverb:start`; Reverb registers itself. Pail is skipped on Windows because it needs `pcntl`.
-- No git repository has been initialised yet.
+- Repository: https://github.com/PatFox/Akord (public, MIT). Branch: `main`.
+- Fresh clone: run `composer setup`, then fill in `REVERB_APP_ID`, `REVERB_APP_KEY` and `REVERB_APP_SECRET` in `.env`; any random strings work locally. They are blank in `.env.example` so no keys are published.
 - Next: Phase 3 (actions), with tests 1–8 and 13 written alongside.
