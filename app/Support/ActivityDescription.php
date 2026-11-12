@@ -50,9 +50,23 @@ final class ActivityDescription
             'contract.no_longer_ready' => __('The contract is no longer ready for sign-off'),
             'contract.agreed' => __('The contract was agreed'),
             'contract.version_started' => __(':actor started a new version', compact('actor')),
+            'invitation.sent' => __(':actor invited someone to :party', ['actor' => $actor, 'party' => self::partyName($payload)]),
+            'invitation.resent' => __(':actor resent an invitation to :party', ['actor' => $actor, 'party' => self::partyName($payload)]),
+            'invitation.cancelled' => __(':actor cancelled an invitation to :party', ['actor' => $actor, 'party' => self::partyName($payload)]),
+            'invitation.accepted' => __(':actor joined :subject', compact('actor', 'subject')),
             'contract.human_signoff_changed' => __(':actor changed the human sign-off rule', compact('actor')),
             default => __(':actor made a change', compact('actor')),
         };
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private static function partyName(array $payload): string
+    {
+        $name = Party::query()->whereKey($payload['party_id'] ?? 0)->value('name');
+
+        return is_string($name) ? '“'.$name.'”' : __('a party');
     }
 
     private static function subjectLabel(ActivityEvent $event): string

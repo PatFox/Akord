@@ -4,6 +4,9 @@ use Illuminate\Support\Facades\Route;
 
 Route::view('/', 'welcome')->name('home');
 
+// Public: the link in an invitation email. Guests are sent to log in or register and come back.
+Route::livewire('invitations/{token}', 'pages::invitations.show')->name('invitations.show');
+
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::livewire('dashboard', 'pages::organisations.index')->name('dashboard');
 

@@ -278,11 +278,34 @@ This document records the agreed plan: v2, as amended by v3 and decisions D8–D
   - MySQL 8.4: 144 passed.
   - **End to end in a browser** (queue worker → Reverb → Echo → Livewire): with Alice's page open, approvals made elsewhere switched it to "Ready for sign-off" without a reload. A step added by the owner then showed the gate with "Test User added step “Late addition”".
 
-### Phase 6: human invitations
+### Phase 6: human invitations ✅ done 2026-11-13
 
-- An owner invites an email address to a contract and party. The email carries a signed link; only the token hash is stored. Tokens are single-use and expire.
-- To accept, the person signs up or logs in, and the account email must match the invite. They are then added to the party.
-- Mail class: `app/Mail/InvitationMail.php`.
+- **Inviting** (owners, from contract settings):
+  - `InviteToContract(owner, contract, party, email)`. The email is normalised (`NormalisedEmail`).
+  - The party must be attached to the contract and must not be an agent; agents use claim codes (Phase 7).
+  - Refused (422) when the person is already a member, or already has a pending invitation (resend it instead).
+  - Allowed on agreed contracts: joining a party doesn't change the agreed content.
+  - Records `invitation.sent`, without the email address, because activity is visible to everyone on the contract.
+- **The link:** `/invitations/{token}`. The token is random (64 characters, about 380 bits); only `sha256(token)` is stored. That secret is what makes the link unforgeable; a Laravel URL signature would add nothing, because the database lookup also enforces expiry and single use. Links expire after `InviteToContract::VALID_FOR_DAYS` (7) days and work once.
+- **Mail:** `App\Mail\InvitationMail` (Markdown, `resources/views/mail/invitation.blade.php`) is sent **synchronously after commit, never queued**, so the raw token never reaches the jobs or failed-jobs tables. If sending fails, the invitation stays pending and the settings page tells the owner to Resend.
+- **Resend** issues a new token and a new expiry, so the old link stops working. **Cancel** sets `revoked_at`. A migration adds `invitations.revoked_at` and `accepted_user_id`.
+- **Accepting:** `AcceptInvitation(user, token)` locks the contract row first, then the invitation.
+  - Unknown link: 404. Used, cancelled or expired: 410 (`InvitationUnavailableException`). Signed-in email (normalised) different from the invited one: 403.
+  - On success the person joins the party, the invitation is marked accepted by that user, and `invitation.accepted` is recorded.
+- **Page** (public, auth layout):
+  - Guests see the invitation and "Log in" / "Create an account". The page sets `url.intended`, so they come back to it after login or registration.
+  - Signed-in people with the right email see "Accept invitation", which leads to the contract. The usual email verification still applies before the contract opens.
+  - Someone signed in with a different email is told so and offered Log out.
+- **Scope (D1 vs D5):** accepting grants membership of the party, so the person sees every contract the party is attached to. The invite form warns when the chosen party is on other contracts. To share a single contract, invite into a party attached only to that contract.
+- **Tests:** `tests/Feature/InvitationTest.php`, 9 tests:
+  - Plan test 11: a valid link joins the right party and contract (any capitalisation); used, expired and cancelled links get 410, an unknown link 404, a wrong account 403, and none of them change anything.
+  - Only the hash is stored. Resend makes the old link unusable.
+  - Owner-only, and agent, unattached, existing-member and duplicate invitations are refused.
+  - A guest registers from the link and comes back to accept. A wrong-account warning. A mail-transport failure keeps the invitation.
+- **Verified:**
+  - `composer test` on SQLite: Pint pass, Larastan 0 errors, 152 passed plus 1 skipped.
+  - End to end with a real email (Mailpit): the owner invited carol@example.com into "Guest reviewer". The email arrived with its link; Carol opened it as a guest, registered, came back, accepted, verified her email, and saw only that contract (the other two returned 404). Reopening the link said it had already been used.
+- **Local mail:** `.env` sends SMTP to Mailpit on `127.0.0.1:1025`. Start it with `docker run -d --rm --name akord-mailpit -p 127.0.0.1:1025:1025 -p 127.0.0.1:8026:8025 axllent/mailpit`; the inbox is at http://localhost:8026. Port 8025 was taken by another container on this machine.
 
 ### Phase 7: agents
 
@@ -388,4 +411,4 @@ Phase 1 setup first. Then Phases 2–3 (data model and actions, including `Contr
 - Run the app with `composer dev` (`php artisan dev`). It starts serve, `queue:listen`, Vite, and `reverb:start`; Reverb registers itself. Pail is skipped on Windows because it needs `pcntl`.
 - Repository: https://github.com/PatFox/Akord (public, MIT). Branch: `main`.
 - Fresh clone: run `composer setup`, then fill in `REVERB_APP_ID`, `REVERB_APP_KEY` and `REVERB_APP_SECRET` in `.env`; any random strings work locally. They are blank in `.env.example` so no keys are published.
-- Next: Phase 6 (human invitations).
+- Next: Phase 7 (agents): claim codes, Sanctum tokens, the REST API and the MCP server.
