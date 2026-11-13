@@ -396,7 +396,8 @@ Replaces "claim a code with curl, then hand-edit `mcp.json`" for MCP clients. Cl
 - **Verified:**
   - Pint pass and Larastan 0 errors (through `composer test`).
   - `php artisan test` on SQLite: 191 passed plus 1 skipped.
-  - Not yet checked: MySQL, a browser, or a real email through Mailpit.
+  - CI on push (`5e37ab1`, together with Phase 9): both the SQLite gate and MySQL 8.4 jobs passed.
+  - Not yet checked: a browser, or a real email through Mailpit.
 - **Running the suite from omp:** omp loads the project `.env` into its own environment, and `composer test` passed those values to PHPUnit as real environment variables (`APP_ENV=local`, `QUEUE_CONNECTION=database`). Those override `phpunit.xml`, so CSRF checks and the queue behaved as in development and unrelated tests failed. Run `php artisan test` with the `.env` keys unset. A normal terminal doesn't have this problem.
 
 ### Phase 9: one MCP URL per agent party ✅ done 2026-11-13
@@ -448,6 +449,7 @@ Replaces "claim a code with curl, then hand-edit `mcp.json`" for MCP clients. Cl
 - **Verified:**
   - Pint pass and Larastan 0 errors.
   - `php artisan test` on SQLite: 196 passed plus 1 skipped.
+  - CI on `5e37ab1`: SQLite gate and MySQL 8.4 both passed.
   - Against the running app: `POST /mcp/agents/6` gives 401 with `resource_metadata=…/mcp/agents/6`, and that document has `resource: http://localhost:8000/mcp/agents/6`.
   - Not yet done end to end with omp: a repo with `.omp/mcp.json`, `/mcp reauth akord`, the fixed approval screen, then tools as that party.
 
@@ -529,4 +531,7 @@ Phases 1–9 are done, in order.
 - Repository: https://github.com/PatFox/Akord (public, MIT). Branch: `main`.
 - Fresh clone: run `composer setup`, then fill in `REVERB_APP_ID`, `REVERB_APP_KEY` and `REVERB_APP_SECRET` in `.env`; any random strings work locally. They are blank in `.env.example` so no keys are published.
 - Passport signing keys: `storage/oauth-private.key` and `storage/oauth-public.key`, created by `composer setup` (or `php artisan passport:keys`). Never commit them.
-- Next: all planned phases are done. Open items: Phase 8 on MySQL and end to end (browser plus Mailpit); Reverb's default port 8080 clashes with other local Docker projects on this machine.
+- Next: all planned phases are done. Open items:
+  - Phase 8 end to end: browser plus Mailpit.
+  - Phase 9 end to end with omp in two repos.
+  - Reverb's default port 8080 clashes with other local Docker projects on this machine.
