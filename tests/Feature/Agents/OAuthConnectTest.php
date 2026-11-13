@@ -32,15 +32,16 @@ function registerClient(object $t): string
  * @param  array<string, mixed>  $choice
  * @return array{0: TestResponse, 1: string}
  */
-function approveAs(object $t, User $user, string $clientId, array $choice): array
+function approveAs(object $t, User $user, string $clientId, array $choice, ?string $resource = null): array
 {
     $verifier = Str::random(64);
     $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
 
-    $t->actingAs($user)->get('/oauth/authorize?'.http_build_query([
+    $t->actingAs($user)->get('/oauth/authorize?'.http_build_query(array_filter([
         'response_type' => 'code', 'client_id' => $clientId, 'redirect_uri' => CALLBACK,
         'code_challenge' => $challenge, 'code_challenge_method' => 'S256', 'state' => 'xyz', 'scope' => 'mcp:use',
-    ]))->assertOk()->assertSee('Connect omp to Akord');
+        'resource' => $resource,
+    ])))->assertOk()->assertSee('Connect omp to Akord');
 
     $response = $t->post(route('agents.connect.approve'), ['auth_token' => session('authToken'), ...$choice]);
 
@@ -53,10 +54,10 @@ function approveAs(object $t, User $user, string $clientId, array $choice): arra
  * @param  list<string>  $abilities
  * @return array{access_token: string, refresh_token: string, client_id: string}
  */
-function connect(object $t, ?Party $party = null, array $abilities = ['comment', 'approve']): array
+function connect(object $t, ?Party $party = null, array $abilities = ['comment', 'approve'], ?string $clientId = null, ?string $resource = null): array
 {
-    $clientId = registerClient($t);
-    [$approved, $verifier] = approveAs($t, $t->s->owner, $clientId, ['party_id' => ($party ?? $t->agent)->id, 'abilities' => $abilities]);
+    $clientId ??= registerClient($t);
+    [$approved, $verifier] = approveAs($t, $t->s->owner, $clientId, ['party_id' => ($party ?? $t->agent)->id, 'abilities' => $abilities], $resource);
     parse_str((string) parse_url((string) $approved->assertRedirect()->headers->get('Location'), PHP_URL_QUERY), $query);
 
     app('auth')->forgetGuards();
@@ -178,4 +179,90 @@ test('the fallback command pre-registers a public client with loopback callbacks
     $client = Client::query()->where('name', 'omp')->sole();
     expect($client->confidential())->toBeFalse()
         ->and($client->redirect_uris)->toBe(['http://localhost:3000/callback', 'http://127.0.0.1:3000/callback']);
+});
+
+/**
+ * MCP initialize at $uri with a bearer token; returns the response.
+ */
+function mcpInitialize(object $t, string $token, string $uri): TestResponse
+{
+    app('auth')->forgetGuards();
+    auth()->guard('web')->logout();
+
+    return $t->withToken($token)->postJson($uri, [
+        'jsonrpc' => '2.0', 'id' => 1, 'method' => 'initialize',
+        'params' => ['protocolVersion' => '2025-06-18', 'capabilities' => [], 'clientInfo' => ['name' => 'omp', 'version' => '1']],
+    ]);
+}
+
+test('each agent party has its own MCP URL, with its own OAuth discovery', function () {
+    $url = url("/mcp/agents/{$this->agent->id}");
+
+    $this->postJson($url, ['jsonrpc' => '2.0', 'id' => 1, 'method' => 'initialize'])
+        ->assertUnauthorized()
+        ->assertHeader('WWW-Authenticate', 'Bearer realm="mcp", resource_metadata="'.url("/.well-known/oauth-protected-resource/mcp/agents/{$this->agent->id}").'"');
+
+    $this->getJson("/.well-known/oauth-protected-resource/mcp/agents/{$this->agent->id}")->assertOk()
+        ->assertJsonPath('resource', $url);
+});
+
+test('a sign-in for one party’s URL works there and is refused at another party’s URL', function () {
+    $other = $this->s->party(ContractRole::Commenter, agent: true)->party;
+    $a = connect($this);
+    $b = connect($this, $other);
+
+    mcpInitialize($this, $a['access_token'], "/mcp/agents/{$this->agent->id}")->assertOk();
+    mcpInitialize($this, $b['access_token'], "/mcp/agents/{$other->id}")->assertOk();
+    mcpInitialize($this, $a['access_token'], "/mcp/agents/{$other->id}")->assertForbidden();
+    mcpInitialize($this, $b['access_token'], "/mcp/agents/{$this->agent->id}")->assertForbidden();
+
+    // Connecting the second repo kept the first connection.
+    expect(AgentConnection::query()->active()->pluck('party_id')->sort()->values()->all())->toBe([$this->agent->id, $other->id]);
+});
+
+test('a client reused for a second party’s URL is shown the approval screen again, and keeps its first connection', function () {
+    $other = $this->s->party(ContractRole::Commenter, agent: true)->party;
+    $clientId = registerClient($this);
+    $first = connect($this, clientId: $clientId, resource: url("/mcp/agents/{$this->agent->id}"));
+    // Passport would skip the screen (the client already has a valid token); the second party isn't connected yet, so it doesn't.
+    $second = connect($this, $other, clientId: $clientId, resource: url("/mcp/agents/{$other->id}"));
+
+    expect(AgentConnection::query()->active()->pluck('party_id')->sort()->values()->all())->toBe([$this->agent->id, $other->id]);
+
+    $init = mcpInitialize($this, $second['access_token'], "/mcp/agents/{$other->id}")->assertOk();
+    app('auth')->forgetGuards();
+    $text = $this->withToken($first['access_token'])->withHeaders(['MCP-Protocol-Version' => $init->json('result.protocolVersion')])
+        ->postJson("/mcp/agents/{$this->agent->id}", ['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/call', 'params' => ['name' => 'list_contracts', 'arguments' => []]])
+        ->assertOk()->json('result.content.0.text');
+    expect($text)->toContain('"id": '.$this->s->contract->id);
+});
+
+test('claim-code tokens work only at their own party’s URL', function () {
+    $other = $this->s->party(ContractRole::Commenter, agent: true)->party;
+    $token = $this->agent->createToken('repo', ['*'])->plainTextToken;
+
+    mcpInitialize($this, $token, "/mcp/agents/{$this->agent->id}")->assertOk();
+    mcpInitialize($this, $token, "/mcp/agents/{$other->id}")->assertForbidden();
+});
+
+test('the approval screen is fixed to the party named by the MCP URL', function () {
+    $other = $this->s->party(ContractRole::Commenter, agent: true)->party;
+    $foreign = Party::factory()->agent()->create(['name' => 'Foreign agent']);
+    $clientId = registerClient($this);
+
+    $this->actingAs($this->s->owner);
+    $this->get('/oauth/authorize?'.http_build_query([
+        'response_type' => 'code', 'client_id' => $clientId, 'redirect_uri' => CALLBACK, 'code_challenge' => str_repeat('a', 43),
+        'code_challenge_method' => 'S256', 'state' => 'xyz', 'scope' => 'mcp:use', 'resource' => url("/mcp/agents/{$other->id}"),
+    ]))->assertOk()
+        ->assertSee('data-test="locked-party"', false)
+        ->assertSee($other->name)
+        ->assertDontSee($this->agent->name);
+
+    $this->get('/oauth/authorize?'.http_build_query([
+        'response_type' => 'code', 'client_id' => $clientId, 'redirect_uri' => CALLBACK, 'code_challenge' => str_repeat('a', 43),
+        'code_challenge_method' => 'S256', 'state' => 'xyz', 'scope' => 'mcp:use', 'resource' => url("/mcp/agents/{$foreign->id}"),
+    ]))->assertOk()
+        ->assertSee('not an owner of')
+        ->assertDontSee('data-test="connect-form"', false);
 });

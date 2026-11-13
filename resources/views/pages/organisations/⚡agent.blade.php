@@ -11,6 +11,7 @@ use App\Models\Organisation;
 use App\Models\Party;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
+use App\Support\Agents\PartyMcpUrl;
 use Laravel\Sanctum\PersonalAccessToken;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
@@ -99,6 +100,18 @@ new class extends Component {
         unset($this->tokens);
     }
 
+    #[Computed]
+    public function mcpUrl(): string
+    {
+        return PartyMcpUrl::for($this->party);
+    }
+
+    #[Computed]
+    public function ompConfig(): string
+    {
+        return (string) json_encode(['mcpServers' => ['akord' => ['type' => 'http', 'url' => $this->mcpUrl]]], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    }
+
     public function render()
     {
         return $this->view()->title(__('Agent access').' · '.$this->party->name);
@@ -119,10 +132,15 @@ new class extends Component {
 
     <div class="space-y-3">
         <flux:heading size="lg" level="2">{{ __('Connect an MCP client (recommended)') }}</flux:heading>
-        <flux:text size="sm">{{ __('Tools such as omp sign in with your Akord account in the browser; you then choose this party on the approval screen. No codes or tokens to copy.') }}</flux:text>
-        <div class="space-y-1 text-sm">
-            <div><strong>omp</strong>: <code class="select-all font-mono text-xs">omp plugin marketplace add PatFox/Akord</code>, <code class="select-all font-mono text-xs">omp plugin install akord@akord</code>, {{ __('then in omp') }} <code class="font-mono text-xs">/reload-plugins</code> {{ __('and') }} <code class="font-mono text-xs">/mcp reauth akord</code>.</div>
-            <div>{{ __('Other MCP clients: add the server URL') }} <code class="select-all font-mono text-xs">{{ url('/mcp') }}</code> {{ __('and sign in when asked.') }}</div>
+        <flux:text size="sm">{{ __('This party has its own MCP URL. Put it in the MCP settings of the repo whose agent represents this party; the tool signs in with your Akord account in the browser, and the approval screen is fixed to this party. A sign-in made for this URL cannot act as any other party.') }}</flux:text>
+        <div class="space-y-2 text-sm">
+            <div>{{ __('MCP URL') }}: <code class="select-all font-mono text-xs" data-test="party-mcp-url">{{ $this->mcpUrl }}</code></div>
+            <div>
+                <strong>omp</strong>: {{ __('commit this as') }} <code class="font-mono text-xs">.omp/mcp.json</code> {{ __('in the repo (no secrets in it), then in omp') }} <code class="select-all font-mono text-xs">/mcp reauth akord</code>.
+                {{ __('For the review skill, also install the plugin:') }} <code class="select-all font-mono text-xs">omp plugin marketplace add PatFox/Akord</code>, <code class="select-all font-mono text-xs">omp plugin install akord@akord</code>.
+                <pre class="mt-1 select-all overflow-x-auto rounded bg-zinc-100 px-2 py-1 font-mono text-xs dark:bg-zinc-900" data-test="omp-mcp-json">{{ $this->ompConfig }}</pre>
+            </div>
+            <div>{{ __('Other MCP clients: add the URL above as an HTTP MCP server and sign in when asked.') }}</div>
         </div>
 
         @if ($this->connections->isNotEmpty())

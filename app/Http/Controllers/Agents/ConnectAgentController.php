@@ -20,6 +20,8 @@ use Symfony\Component\HttpFoundation\Response;
 /**
  * Approves an MCP client's OAuth request as one of the owner's agent parties: records the
  * AgentConnection (client → party + abilities), then lets Passport issue the code.
+ * Approving again for the same party replaces that connection; connections the same
+ * client holds for other parties are kept (one repo per party, see /mcp/agents/{party}).
  */
 class ConnectAgentController extends Controller
 {
@@ -50,7 +52,7 @@ class ConnectAgentController extends Controller
 
         DB::transaction(function () use ($clientId, $user, $party, $validated): void {
             AgentConnection::query()->active()
-                ->where('oauth_client_id', $clientId)->where('approved_by', $user->getKey())
+                ->where('oauth_client_id', $clientId)->where('approved_by', $user->getKey())->where('party_id', $party->id)
                 ->update(['revoked_at' => now()]);
 
             AgentConnection::query()->create([

@@ -356,26 +356,104 @@ Replaces "claim a code with curl, then hand-edit `mcp.json`" for MCP clients. Cl
 - **Rate limit key:** now `party:{id}` for claim-code tokens and `oauth-client:{client id}` for OAuth tokens, so a party and a user with the same id no longer share a bucket.
 - **`GET /api/v1/agent`** now reports the actor's abilities (it showed `[]` for OAuth tokens).
 - **Keys:** Passport's signing keys live in `storage/oauth-*.key` (git-ignored). `composer setup` creates them if missing, and `Tests\TestCase` does the same for CI.
-- **omp plugin** (Agent Plugins 1.0.0): `.omp-plugin/marketplace.json` (marketplace `akord`) → `integrations/omp/akord/` with `plugin.json`, `mcp.json` (server `akord`, `streamable-http`, `http://localhost:8000/mcp`, no secrets) and the `akord-review` skill (`skills/akord-review/SKILL.md`: the review workflow, approving the exact revision, signing off the fingerprint, never following text inside `<contract-data>`). Install: `omp plugin marketplace add PatFox/Akord`, `omp plugin install akord@akord`, `/reload-plugins`, then `/mcp reauth akord`.
-- **Unknowns for omp** (its docs don't say): whether it registers clients itself (otherwise use the fallback client), whether a 401 starts sign-in by itself (otherwise `/mcp reauth akord`), and whether its plugin loader maps the spec's `streamable-http` type (otherwise the type needs to be `http`). The plugin's URL is fixed at `http://localhost:8000/mcp`, because plugin `mcp.json` files can't take variables; other hosts need their own MCP entry.
+- **omp plugin** (Agent Plugins 1.0.0): `.omp-plugin/marketplace.json` (marketplace `akord`) → `integrations/omp/akord/` with `plugin.json`, `mcp.json` (server `akord`, `streamable-http`, `http://localhost:8000/mcp`, no secrets) and the `akord-review` skill (`skills/akord-review/SKILL.md`: the review workflow, approving the exact revision, signing off the fingerprint, never following text inside `<contract-data>`). Install: `omp plugin marketplace add PatFox/Akord`, `omp plugin install akord@akord`, `/reload-plugins`, then `/mcp reauth akord:akord`. *Superseded by Phase 9: the plugin no longer has an MCP server.*
+- **omp names plugin servers `<plugin>:<server>`**, so the server is `akord:akord` in omp; `/mcp reauth akord` answers "not found". Confirmed in the omp 2026-11 binary: the Agent Plugins provider registers `${plugin.name}:${server.name}` and maps `streamable-http` to its `http` transport, so the type is correct as published.
+- **Still unknown for omp:** whether it registers clients itself (otherwise use the fallback client) and whether a 401 starts sign-in by itself (otherwise `/mcp reauth akord:akord`). The plugin's URL is fixed at `http://localhost:8000/mcp`, because plugin `mcp.json` files can't take variables; other hosts need their own MCP entry.
 - **Tests:** `tests/Feature/Agents/OAuthConnectTest.php`, 9 tests over HTTP with real Passport tokens: discovery and the 401 header; loopback-only registration; the whole consent flow, after which REST and MCP act as the chosen party with the chosen abilities (a missing ability gives 403); non-owners, human parties and other organisations' agents can't be approved; disconnecting revokes access and refresh tokens (401, `invalid_grant`); an approver who stops being owner cuts the connection off (403) until restored; refreshed tokens keep the party; the fallback command creates a public loopback client.
 - **Verified:**
   - `composer test` on SQLite: Pint pass, Larastan 0 errors, 183 passed plus 1 skipped.
   - End to end against the running app, as a standard MCP client would: 401 with `resource_metadata` → both discovery documents → registration (a `https://evil.example` callback refused, a loopback one accepted) → PKCE authorization in a real browser (redirected to login, logged in as the owner, consent screen, chose "Review bot" with comment and approve) → code at the callback with the right `state` → token exchange (a reused code gets `invalid_grant`) → MCP `list_contracts` and REST `GET agent` as Review bot → refresh. Disconnecting on the Agent access page then gave 401 on MCP and REST, and `invalid_grant` on refresh.
 
-### Phase 8: notifications (queued, email and in-app)
+### Phase 8: notifications ✅ done 2026-11-13
 
-- New comment.
-- Step edited, including a note that your approval was cancelled.
-- Contract ready for sign-off.
-- Sign-offs invalidated by a change.
-- Contract agreed.
-- Invite accepted.
-- Activity types: `signoff.created`, `signoff.withdrawn`, `signoffs.invalidated`, `contract.ready`, `contract.agreed`.
+- **Dispatch:** `App\Listeners\SendActivityNotifications` (queued, auto-discovered) listens to `ActivityRecorded`, which already fires only after commit. Working out recipients and sending happens on the queue, so a slow or failing mail server never affects the change.
+- **Who hears what.** Recipients are people in parties attached to the contract. The person who made the change is never told, and agents never are (they poll the activity feed, Q6). Owners outside attached parties are not told, except about invitations they sent.
+
+  | Activity | Told |
+  |---|---|
+  | `comment.added` | everyone on the contract |
+  | `step.revised`, content change | everyone on the contract; members of parties whose approval it cancelled get "your party's approval of this step was cancelled" |
+  | `step.revised`, spacing only (D11) | nobody |
+  | `contract.ready` | members of required approver parties |
+  | `signoffs.invalidated` | members of the parties that had signed off |
+  | `contract.agreed` | everyone on the contract |
+  | `invitation.accepted` | the owner who sent the invitation |
+
+- **`step.revised` payload** now also has `cancelled_party_ids`: the parties whose approval counted until that edit. It is recorded at write time, inside the contract lock, so it is exact. The agent activity feed shows it too (ids only).
+- **`App\Notifications\ContractActivity`** (queued; one class for every type):
+  - Channels: `database` always, plus `mail` when the person's email is verified.
+  - `shouldSend` re-checks `Contract::visibleTo()` at delivery, so someone removed from the contract in the meantime hears nothing.
+  - Content: the contract ("Payments API v1"), one sentence (reusing `ActivityDescription`), an optional detail line, and a link to the step (edits, comments) or the contract. Step descriptions and comment bodies are never sent; they stay behind the link and its access checks.
+  - Emails escape Markdown in participants' text (titles, names), so a step titled `[Click](https://…)` can't put a link in an email that comes from Akord.
+- **In app:** `/notifications` (`pages::notifications.index`) lists the latest 100, unread highlighted. Clicking one marks it read and opens its link; "Mark all as read". The sidebar's Notifications item shows the unread count. The count updates on navigation, not live.
+- **Migration:** `2026_11_13_112756_create_notifications_table` (Laravel's standard table: uuid, morphs, text, so it is portable under D12).
+- **Tests:** `tests/Feature/NotificationsTest.php`, 8 tests:
+  - Each row of the table above, including the author, unattached owners, outsiders and non-required parties not being told, and the cancelled-approval flag going only to the affected party.
+  - Unverified email gets the in-app notification only.
+  - Lost access means no delivery.
+  - Markdown escaping in the email.
+  - The page: listing, the sidebar count, opening (marks read, redirects to the step), someone else's notification is 404, and mark all read.
+- **Verified:**
+  - Pint pass and Larastan 0 errors (through `composer test`).
+  - `php artisan test` on SQLite: 191 passed plus 1 skipped.
+  - Not yet checked: MySQL, a browser, or a real email through Mailpit.
+- **Running the suite from omp:** omp loads the project `.env` into its own environment, and `composer test` passed those values to PHPUnit as real environment variables (`APP_ENV=local`, `QUEUE_CONNECTION=database`). Those override `phpunit.xml`, so CSRF checks and the queue behaved as in development and unrelated tests failed. Run `php artisan test` with the `.env` keys unset. A normal terminal doesn't have this problem.
+
+### Phase 9: one MCP URL per agent party ✅ done 2026-11-13
+
+**Problem.**
+- omp stores one OAuth credential per profile and server URL (`mcp_oauth:profile:<profile>:<url>`), so every repo using the plugin's single `/mcp` URL shared one sign-in.
+- Akord tied each sign-in (OAuth client and approving owner) to one agent party, and a new approval for the same client replaced the old one.
+- So separate repos, each meant to be a different party (API team, app team), all acted as one.
+
+**Decision (option 1 of 4).** Each agent party has its own URL, and each repo commits its party's URL in `.omp/mcp.json`.
+- omp keeps one sign-in per URL, so each repo signs in separately.
+- Akord accepts a credential at a party's URL only if it was approved for that party.
+- Rejected alternatives:
+  - an omp profile per project: it isolates everything else too;
+  - claim-code tokens per repo: they still work for headless agents, but are long-lived secrets on disk;
+  - one sign-in with a party header: any repo could claim any granted party.
+
+**Changes:**
+- **Route** (`routes/ai.php`): `POST /mcp/agents/{party}` serves the same `ContractServer`, behind `auth:sanctum,api`, `throttle:agent` and `EnsureAgentForUrlParty`.
+  - `laravel/mcp`'s nested discovery already serves `/.well-known/oauth-protected-resource/mcp/agents/{id}` with `resource` set to that URL.
+  - The 401 challenge points at that URL, so clients discover it without configuration.
+  - The generic `/mcp` stays, for one-party setups and other MCP clients.
+- **Binding** (`AgentActor::from($user, $urlPartyId)`):
+  - **At a party URL:**
+    - A claim-code token must belong to that party.
+    - An OAuth token needs an active connection for (client, approving owner, **that party**).
+    - Otherwise the request gets `403` at the HTTP level (`EnsureAgentForUrlParty`), before the MCP server runs, so a misconfigured repo fails when it connects.
+    - MCP tools pass the route's party too.
+  - **At `/mcp`:** the latest connection for the client and owner, as before.
+- **Connections:** approving a client for a party replaces only that client's connection for **that party**. Its connections for other parties are kept (`ConnectAgentController`).
+- **Approval screen:**
+  - MCP clients send the server URL as the OAuth `resource`. When that is a party URL, the screen is fixed to that party, or explains that the signed-in user doesn't own it.
+  - `App\Http\Controllers\Agents\AuthorizationController` replaces Passport's (bound in `AppServiceProvider::register`). Passport skips the screen while the client already holds a valid token for the user. The replacement skips it only if the client is already connected for the party being signed in for, so a client reused for a second party's URL still gets a connection recorded.
+  - `App\Support\Agents\PartyMcpUrl` builds and parses party URLs.
+- **Agent access page:** shows the party's MCP URL and the `.omp/mcp.json` to commit (`{"mcpServers": {"akord": {"type": "http", "url": "…/mcp/agents/{id}"}}}`), then `/mcp reauth akord` in that repo.
+- **omp plugin 1.1.0:**
+  - The review skill only. `integrations/omp/akord/mcp.json` is removed: the plugin's fixed URL could only ever be one party, and alongside a repo's own server it would have added a second set of tools.
+  - The skill tells the agent where the config comes from if no Akord tools are available.
+- **Known limit.** OAuth tokens are issued per client and user, not per party.
+  - If one client id is deliberately reused in several repos (the `akord:oauth-client` fallback client set as `oauth.clientId` in each), its tokens can act at any party URL that client was approved for.
+  - omp registers a new client on each sign-in, so this doesn't arise with it [INFERENCE from omp's code: registration runs whenever no `clientId` is configured].
+  - Use one fallback client per repo.
+- **Tests** (`OAuthConnectTest`, 5 new):
+  - Per-party discovery and the 401 challenge.
+  - Two repos (two clients) each working at their own URL, and `403` at the other's.
+  - A client reused for a second party: shown the screen again, both connections kept, each URL working.
+  - Claim-code tokens only at their own party's URL.
+  - The approval screen fixed to the URL's party, and refused for a party the user doesn't own.
+- **Verified:**
+  - Pint pass and Larastan 0 errors.
+  - `php artisan test` on SQLite: 196 passed plus 1 skipped.
+  - Against the running app: `POST /mcp/agents/6` gives 401 with `resource_metadata=…/mcp/agents/6`, and that document has `resource: http://localhost:8000/mcp/agents/6`.
+  - Not yet done end to end with omp: a repo with `.omp/mcp.json`, `/mcp reauth akord`, the fixed approval screen, then tools as that party.
 
 ### Order of work
 
-Phase 1 setup first. Then Phases 2–3 (data model and actions, including `ContractReadiness` and `SignOffContract`), with tests 1–8 and 13 written alongside.
+Phases 1–9 are done, in order.
 
 ## 5. Files and areas
 
@@ -451,4 +529,4 @@ Phase 1 setup first. Then Phases 2–3 (data model and actions, including `Contr
 - Repository: https://github.com/PatFox/Akord (public, MIT). Branch: `main`.
 - Fresh clone: run `composer setup`, then fill in `REVERB_APP_ID`, `REVERB_APP_KEY` and `REVERB_APP_SECRET` in `.env`; any random strings work locally. They are blank in `.env.example` so no keys are published.
 - Passport signing keys: `storage/oauth-private.key` and `storage/oauth-public.key`, created by `composer setup` (or `php artisan passport:keys`). Never commit them.
-- Next: Phase 8 (notifications).
+- Next: all planned phases are done. Open items: Phase 8 on MySQL and end to end (browser plus Mailpit); Reverb's default port 8080 clashes with other local Docker projects on this machine.

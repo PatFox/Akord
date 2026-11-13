@@ -26,7 +26,7 @@ abstract class AgentTool extends Tool
     protected function run(Request $request, callable $operation): Response
     {
         try {
-            $data = $operation(app(AgentApi::class), AgentActor::from($request->user()));
+            $data = $operation(app(AgentApi::class), AgentActor::from($request->user(), AgentActor::urlPartyId()));
         } catch (ValidationException $e) {
             return Response::error('422: '.implode(' ', $e->validator->errors()->all()));
         } catch (HttpExceptionInterface $e) {

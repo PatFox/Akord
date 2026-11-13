@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Http\Controllers\Agents\AuthorizationController;
 use App\Models\ActivityEvent;
 use App\Models\AgentClaimCode;
 use App\Models\AgentConnection;
@@ -27,6 +28,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
+use Laravel\Passport\Http\Controllers\AuthorizationController as PassportAuthorizationController;
 use Laravel\Passport\Passport;
 
 class AppServiceProvider extends ServiceProvider
@@ -36,7 +38,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Passport's authorize endpoint, with consent forced for a party not yet connected (see the class).
+        $this->app->bind(PassportAuthorizationController::class, AuthorizationController::class);
     }
 
     /**

@@ -1,6 +1,6 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "akord",
-  "version": "1.0.0",
-  "description": "Review and agree software-development contracts in Akord: the MCP server (OAuth sign-in) and a contract-review skill."
+  "version": "1.1.0",
+  "description": "Review and agree software-development contracts in Akord: a contract-review skill. Each repo connects to its own agent party's MCP URL (see the party's Agent access page in Akord)."
 }
