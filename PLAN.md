@@ -433,6 +433,14 @@ Replaces "claim a code with curl, then hand-edit `mcp.json`" for MCP clients. Cl
   - `App\Http\Controllers\Agents\AuthorizationController` replaces Passport's (bound in `AppServiceProvider::register`). Passport skips the screen while the client already holds a valid token for the user. The replacement skips it only if the client is already connected for the party being signed in for, so a client reused for a second party's URL still gets a connection recorded.
   - `App\Support\Agents\PartyMcpUrl` builds and parses party URLs.
 - **Agent access page:** shows the party's MCP URL and the `.omp/mcp.json` to commit (`{"mcpServers": {"akord": {"type": "http", "url": "…/mcp/agents/{id}"}}}`), then `/mcp reauth akord` in that repo.
+- **Changing abilities after connecting** (added after a report that "Edit steps" on the Agent access page didn't save).
+  - The checkboxes the user had used were the claim-code form's input for the next code, never a saved setting. They're now labelled so.
+  - Each connected tool and each API token now has its own Comment / Edit steps / Approve checkboxes in its row.
+  - Every click saves through `App\Actions\Organisations\SetAgentAbilities`. It is owner-only, returns 404 for a credential of another party or a revoked connection, and always keeps `read`.
+  - The change applies on the agent's next request, because `AgentActor` reads abilities from the connection or token each time.
+  - Before this, changing a connected tool's abilities meant Disconnect and sign in again, because Passport skips the approval screen while the tool's token is valid.
+  - Tests: a token gains `edit` and can then revise a step; non-owners get 403 and another party's token 404; a connection gains `approve` and can then approve.
+  - Checked in a browser: tick "Edit steps", reload, still ticked; untick, reload, unticked. This used a throwaway claim-code token on Review bot, deleted afterwards.
 - **omp plugin 1.1.0:**
   - The review skill only. `integrations/omp/akord/mcp.json` is removed: the plugin's fixed URL could only ever be one party, and alongside a repo's own server it would have added a second set of tools.
   - The skill tells the agent where the config comes from if no Akord tools are available.

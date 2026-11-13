@@ -3,6 +3,7 @@
 use App\Actions\Organisations\CreateAgentClaimCode;
 use App\Actions\Organisations\RevokeAgentConnection;
 use App\Actions\Organisations\RevokeAgentToken;
+use App\Actions\Organisations\SetAgentAbilities;
 use App\Livewire\Concerns\RunsActions;
 use App\Models\AgentClaimCode;
 use App\Models\AgentConnection;
@@ -100,6 +101,21 @@ new class extends Component {
         unset($this->tokens);
     }
 
+    /**
+     * Turns one ability on or off for an existing MCP connection or API token.
+     */
+    public function toggleAbility(string $kind, int $id, string $ability): void
+    {
+        $credential = $kind === 'connection'
+            ? AgentConnection::query()->where('party_id', $this->party->id)->findOrFail($id)
+            : $this->party->tokens()->whereKey($id)->firstOrFail();
+        $current = array_values(array_map(strval(...), (array) $credential->abilities));
+        $abilities = in_array($ability, $current, true) ? array_values(array_diff($current, [$ability])) : [...$current, $ability];
+
+        $this->attempt(fn () => app(SetAgentAbilities::class)->handle(Auth::user(), $this->party, $credential, $abilities), __('Abilities saved.'));
+        unset($this->connections, $this->tokens);
+    }
+
     #[Computed]
     public function mcpUrl(): string
     {
@@ -156,7 +172,7 @@ new class extends Component {
                     @foreach ($this->connections as $connection)
                         <flux:table.row :key="'connection-'.$connection->id">
                             <flux:table.cell class="font-medium">{{ $connection->client?->name ?? __('Unknown tool') }}</flux:table.cell>
-                            <flux:table.cell>{{ implode(', ', $connection->abilities) }}</flux:table.cell>
+                            <flux:table.cell>@include('partials.agent-abilities', ['kind' => 'connection', 'id' => $connection->id, 'abilities' => $connection->abilities])</flux:table.cell>
                             <flux:table.cell>{{ $connection->approver?->name }}</flux:table.cell>
                             <flux:table.cell>{{ $connection->last_used_at?->diffForHumans() ?? __('Never') }}</flux:table.cell>
                             <flux:table.cell align="end">
@@ -173,6 +189,7 @@ new class extends Component {
         <flux:heading size="lg" level="2">{{ __('Or: a one-time claim code') }}</flux:heading>
         <flux:text size="sm">{{ __('For agents that call the REST API or cannot sign in through a browser.') }}</flux:text>
         <form wire:submit="generate" class="space-y-3">
+            <flux:text size="sm">{{ __('Abilities for the next code you generate (not saved until you generate it). To change a connected tool or an existing token, use the checkboxes in its row.') }}</flux:text>
             <div class="flex flex-wrap gap-4">
                 <flux:checkbox checked disabled :label="__('Read')" />
                 <flux:checkbox wire:model="abilities" value="comment" :label="__('Comment')" />
@@ -225,7 +242,7 @@ new class extends Component {
                     @foreach ($this->tokens as $token)
                         <flux:table.row :key="'token-'.$token->id">
                             <flux:table.cell class="font-medium">{{ $token->name }}</flux:table.cell>
-                            <flux:table.cell>{{ implode(', ', $token->abilities) }}</flux:table.cell>
+                            <flux:table.cell>@include('partials.agent-abilities', ['kind' => 'token', 'id' => $token->id, 'abilities' => $token->abilities])</flux:table.cell>
                             <flux:table.cell>{{ $token->last_used_at?->diffForHumans() ?? __('Never') }}</flux:table.cell>
                             <flux:table.cell>{{ $token->created_at?->toFormattedDayDateString() }}</flux:table.cell>
                             <flux:table.cell align="end">

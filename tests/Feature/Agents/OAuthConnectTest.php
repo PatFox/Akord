@@ -9,6 +9,7 @@ use App\Models\User;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use Laravel\Passport\Client;
+use Livewire\Livewire;
 use Tests\Support\Scenario;
 
 const CALLBACK = 'http://localhost:3999/callback';
@@ -171,6 +172,21 @@ test('refreshed tokens keep acting as the agent party', function () {
         ->assertOk()->json('access_token');
 
     bearer($this, $refreshed, 'GET', '/api/v1/agent')->assertOk()->assertJsonPath('data.party.id', $this->agent->id);
+});
+
+test('owners change a connected tool’s abilities from the agent page without signing in again', function () {
+    $tokens = connect($this, abilities: ['comment']);
+    $step = $this->s->step();
+    $approve = fn () => bearer($this, $tokens['access_token'], 'POST', "/api/v1/contracts/{$this->s->contract->id}/steps/{$step->id}/approval", ['revision' => 1]);
+
+    $approve()->assertForbidden();
+
+    $this->actingAs($this->s->owner);
+    Livewire::test('pages::organisations.agent', ['organisation' => $this->s->organisation, 'party' => $this->agent])
+        ->call('toggleAbility', 'connection', AgentConnection::query()->sole()->id, 'approve');
+
+    expect(AgentConnection::query()->sole()->abilities)->toBe(['read', 'comment', 'approve']);
+    $approve()->assertSuccessful();
 });
 
 test('the fallback command pre-registers a public client with loopback callbacks', function () {

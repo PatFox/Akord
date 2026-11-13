@@ -2,6 +2,7 @@
 
 use App\Actions\Organisations\CreateAgentClaimCode;
 use App\Actions\Organisations\RevokeAgentToken;
+use App\Actions\Organisations\SetAgentAbilities;
 use App\Enums\ContractRole;
 use App\Models\Organisation;
 use App\Models\Party;
@@ -102,6 +103,29 @@ test('owners generate a code that is shown once, and can revoke tokens, from the
         ->assertSee('ci-bot')
         ->call('revoke', $this->agent->tokens()->sole()->id);
     expect($this->agent->tokens()->count())->toBe(0);
+});
+
+test('owners change an existing token’s abilities from the agent page, effective on its next request', function () {
+    $step = $this->s->step();
+    $client = new AgentClient($this, $this->agent, $this->agent->createToken('ci-bot', ['read'])->plainTextToken);
+    $tokenId = $this->agent->tokens()->sole()->id;
+    $revise = fn () => $client->api('PUT', "contracts/{$this->s->contract->id}/steps/{$step->id}", ['base_revision' => 1, 'title' => 'Build the REST API', 'description_md' => 'Endpoints.']);
+
+    $revise()->assertForbidden();
+
+    $this->actingAs($this->s->owner);
+    Livewire::test('pages::organisations.agent', ['organisation' => $this->s->organisation, 'party' => $this->agent])
+        ->call('toggleAbility', 'token', $tokenId, 'edit');
+
+    expect($this->agent->tokens()->sole()->abilities)->toBe(['read', 'edit']);
+    $revise()->assertSuccessful();
+
+    // Non-owners can't change abilities, and another agent's token is not found.
+    $other = $this->s->party(ContractRole::Editor, agent: true)->party;
+    $otherToken = $other->createToken('x', ['read']);
+    expect(status(fn () => app(SetAgentAbilities::class)->handle($this->s->alpha->user, $this->agent, $this->agent->tokens()->sole(), ['edit'])))->toBe(403)
+        ->and(status(fn () => app(SetAgentAbilities::class)->handle($this->s->owner, $this->agent, $otherToken->accessToken, ['edit'])))->toBe(404)
+        ->and($otherToken->accessToken->fresh()->abilities)->toBe(['read']);
 });
 
 test('only owners open the agent page, and only for agent parties', function () {
