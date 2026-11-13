@@ -192,9 +192,9 @@ new class extends Component {
             <flux:text size="sm">{{ __('Abilities for the next code you generate (not saved until you generate it). To change a connected tool or an existing token, use the checkboxes in its row.') }}</flux:text>
             <div class="flex flex-wrap gap-4">
                 <flux:checkbox checked disabled :label="__('Read')" />
-                <flux:checkbox wire:model="abilities" value="comment" :label="__('Comment')" />
-                <flux:checkbox wire:model="abilities" value="edit" :label="__('Edit steps')" />
-                <flux:checkbox wire:model="abilities" value="approve" :label="__('Approve and sign off')" />
+                @foreach (\App\Support\Agents\AgentAbilities::optionalLabels() as $ability => $label)
+                    <flux:checkbox wire:model="abilities" :value="$ability" :label="$label" wire:key="new-code-{{ $ability }}" />
+                @endforeach
             </div>
             <flux:text size="sm">{{ __('The token can only do what the agent party’s role on each contract also allows.') }}</flux:text>
             <flux:button type="submit" variant="primary" icon="key">{{ __('Generate claim code') }}</flux:button>

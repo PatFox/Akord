@@ -49,6 +49,7 @@ final class ActivityDescription
             'contract.ready' => __('The contract is ready for sign-off'),
             'contract.no_longer_ready' => __('The contract is no longer ready for sign-off'),
             'contract.agreed' => __('The contract was agreed'),
+            'contract.created' => __(':actor created the contract', compact('actor')),
             'contract.version_started' => __(':actor started a new version', compact('actor')),
             'invitation.sent' => __(':actor invited someone to :party', ['actor' => $actor, 'party' => self::partyName($payload)]),
             'invitation.resent' => __(':actor resent an invitation to :party', ['actor' => $actor, 'party' => self::partyName($payload)]),

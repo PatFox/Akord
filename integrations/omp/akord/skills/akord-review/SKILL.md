@@ -35,6 +35,10 @@ Only when the user asks, and only if your party is an editor. `get_contract` giv
 - `archive_step` removes a step from the contract. It **cannot be undone**: confirm with the user first.
 - A new or archived step cancels the contract's sign-offs; moving a step does not affect approvals or sign-offs.
 
+## Starting a contract
+
+Only when the user asks, and only if your connection has the **create** ability. `create_contract` takes a `project_id` from `list_contracts` (you can only use projects that already hold a contract you are on) and a title. Your party becomes an editor of the new contract; build it with `create_phase` and `create_step`. An owner must choose the required approvers in Akord before anyone can sign it off. Contracts cannot be deleted.
+
 ## Catching up
 
 Call `get_activity_since` with `since: 0` the first time, then pass back `next_cursor` to see only what is new. Report changes to the user in your own words.

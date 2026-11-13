@@ -2,6 +2,7 @@
 
 namespace App\Support\Agents;
 
+use App\Actions\Agents\CreateContractAsAgent;
 use App\Actions\Approvals\ApproveStep;
 use App\Actions\Approvals\WithdrawApproval;
 use App\Actions\Comments\AddComment;
@@ -61,6 +62,18 @@ final class AgentApi
         $contract = $this->visibleContract($actor, $contractId);
 
         return AgentPresenter::contract($contract, ContractReadiness::report($contract), $this->party($actor));
+    }
+
+    /**
+     * Starts a contract in a project the agent can see; its party becomes an editor.
+     *
+     * @return array<string, mixed>
+     */
+    public function createContract(Actor $actor, int $projectId, string $title): array
+    {
+        $contract = app(CreateContractAsAgent::class)->handle($actor, $projectId, $title);
+
+        return $this->contract($actor, $contract->id);
     }
 
     public function contractMarkdown(Actor $actor, int $contractId): string

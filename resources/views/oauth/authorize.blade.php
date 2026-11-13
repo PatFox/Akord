@@ -58,9 +58,9 @@
                 <div class="flex flex-col gap-2">
                     <flux:label>{{ __('Abilities') }}</flux:label>
                     <flux:checkbox checked disabled :label="__('Read contracts')" />
-                    <flux:checkbox name="abilities[]" value="comment" checked :label="__('Comment')" />
-                    <flux:checkbox name="abilities[]" value="edit" :label="__('Edit steps')" />
-                    <flux:checkbox name="abilities[]" value="approve" :label="__('Approve and sign off')" />
+                    @foreach (\App\Support\Agents\AgentAbilities::optionalLabels() as $ability => $label)
+                        <flux:checkbox name="abilities[]" :value="$ability" :checked="$ability === 'comment'" :label="$label" />
+                    @endforeach
                     <flux:text size="sm">{{ __('The party’s role on each contract still applies.') }}</flux:text>
                 </div>
 

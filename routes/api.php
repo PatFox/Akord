@@ -25,6 +25,7 @@ Route::prefix('v1')->group(function () {
         Route::get('activity', ActivityController::class);
 
         Route::get('contracts', [ContractController::class, 'index']);
+        Route::post('contracts', [ContractController::class, 'store']);
         Route::get('contracts/{contract}', [ContractController::class, 'show'])->whereNumber('contract');
         Route::get('contracts/{contract}/status', [ContractController::class, 'status'])->whereNumber('contract');
         Route::post('contracts/{contract}/signoffs', [SignoffController::class, 'store'])->whereNumber('contract');

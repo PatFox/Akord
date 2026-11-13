@@ -511,9 +511,46 @@ Replaces "claim a code with curl, then hand-edit `mcp.json`" for MCP clients. Cl
   - `archive_step` removed it.
   - `create_phase` wasn't run live, because phases can't be deleted.
 
+### Phase 11: agents create contracts ✅ done 2026-11-13
+
+**Decisions** (chosen when option 2 was picked; D4 is otherwise unchanged):
+- **New `create` ability**, off by default.
+  - It appears with the others on the approval screen, the claim-code form and each credential's row on the Agent access page.
+  - Labels now come from one list, `AgentAbilities::optionalLabels()`.
+- **Projects:** only projects the agent can already see, through `Project::visibleTo($party)`, meaning projects holding a contract its party is on.
+  - Any other project is `404`, so agents never learn other projects exist.
+  - To let an agent start contracts in a new project, an owner first attaches it to one contract there.
+- **Membership:** the agent's party is attached as **editor**, not as a required approver.
+  - Required approvers stay owner-only (D4), so the contract can't become ready for sign-off until an owner sets them.
+  - The human sign-off rule (D10) starts off, as for owner-created contracts; only owners change it.
+- **No owner notification.** Owners see the contract in the project list and the `contract.created` activity; notifications go to attached parties only (Phase 8).
+
+**Changes:**
+- **Action:** `App\Actions\Agents\CreateContractAsAgent`. In one transaction it creates the contract, attaches the party and records `contract.created`; activity is sequenced after commit. People keep using `Organisations\CreateContract`.
+- **REST:** `POST /api/v1/contracts {project_id, title}` → 201 with the `get_contract` shape.
+- **MCP:** a `create_contract` tool, 17 tools in all, still in one `tools/list` page. The server instructions list it among the structure changes to make only when asked.
+- **Skill and plugin:** the skill has a "Starting a contract" section. The plugin is now 1.3.0.
+
+**Tests** (`tests/Feature/Agents/AgentContractCreationTest.php`, 3):
+- An agent with `create` starts a contract:
+  - it is version 1, draft, with the agent as editor and no required approvers;
+  - one `contract.created` activity is recorded, credited to the party with no user;
+  - the agent builds a phase and a step and approves it, and the contract is still draft;
+  - the owner can see it; people on the agent's other contract can't.
+- The same through MCP.
+- Refusals change nothing:
+  - without `create`: `403`, and a `403:` tool error over MCP;
+  - a same-organisation project the agent isn't on: `404`;
+  - another organisation's project: `404`;
+  - no title: `422`.
+
+**Verified:**
+- Pint pass, Larastan 0 errors, `php artisan test` 209 passed plus 1 skipped.
+- Not run against the live app, because contracts can't be deleted.
+
 ### Order of work
 
-Phases 1–10 are done, in order.
+Phases 1–11 are done, in order.
 
 ## 5. Files and areas
 

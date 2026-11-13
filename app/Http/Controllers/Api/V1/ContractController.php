@@ -17,6 +17,17 @@ class ContractController extends AgentApiController
     }
 
     /**
+     * POST /api/v1/contracts {project_id, title}: needs the 'create' ability; the agent's party
+     * becomes an editor. Projects: only those holding a contract the agent is on (else 404).
+     */
+    public function store(Request $request): JsonResponse
+    {
+        $v = $request->validate(['project_id' => ['required', 'integer'], 'title' => ['required', 'string', 'max:200']]);
+
+        return $this->respond($this->api->createContract($this->actor($request), (int) $v['project_id'], $v['title']), 201);
+    }
+
+    /**
      * GET /api/v1/contracts/{id}[?format=md|json]
      */
     public function show(Request $request, int $contract): JsonResponse|Response

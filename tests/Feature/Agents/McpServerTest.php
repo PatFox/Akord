@@ -10,10 +10,10 @@ beforeEach(function () {
     $this->agent = AgentClient::on($this, $this->s);
 });
 
-test('the MCP server lists its sixteen tools', function () {
+test('the MCP server lists its seventeen tools in one page', function () {
     expect($this->agent->mcp('tools/list')->json('result.tools.*.name'))->toBe([
         'list_contracts', 'get_contract', 'get_contract_status', 'get_step', 'get_step_history', 'get_activity_since',
-        'revise_step', 'create_step', 'move_step', 'create_phase', 'archive_step',
+        'create_contract', 'revise_step', 'create_step', 'move_step', 'create_phase', 'archive_step',
         'add_comment', 'approve_step', 'withdraw_approval', 'sign_off_contract', 'withdraw_signoff',
     ]);
 });
