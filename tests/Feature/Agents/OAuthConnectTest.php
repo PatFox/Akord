@@ -262,7 +262,10 @@ test('claim-code tokens work only at their own party’s URL', function () {
 });
 
 test('the approval screen is fixed to the party named by the MCP URL', function () {
+    // Fixed names: random factory words can contain one another and break the assertDontSee below.
+    $this->agent->update(['name' => 'Payments agent']);
     $other = $this->s->party(ContractRole::Commenter, agent: true)->party;
+    $other->update(['name' => 'Mobile agent']);
     $foreign = Party::factory()->agent()->create(['name' => 'Foreign agent']);
     $clientId = registerClient($this);
 
