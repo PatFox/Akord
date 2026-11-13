@@ -32,6 +32,7 @@ yarn-error.log
 /.junie
 /.kiro
 /.pi
+/.omp
 /.mcp.json
 /AGENTS.md
 /CLAUDE.md
