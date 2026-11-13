@@ -629,4 +629,12 @@ Phases 1–11 are done, in order.
 - Next: all planned phases are done. Open items:
   - Phase 8 end to end: browser plus Mailpit.
   - Phase 9 end to end with omp in two repos.
-  - Reverb's default port 8080 clashes with other local Docker projects on this machine.
+- **Reverb port on this machine: 8082** (2026-11-13).
+  - 8080 is the `monavate-bank-api` Docker container, and 8081 is the `monavate-bank-mobile` Expo dev server.
+  - `.env` sets `REVERB_PORT=8082` and `REVERB_SERVER_PORT=8082`. Vite reads `VITE_REVERB_PORT` from `REVERB_PORT` when it starts, so restart `composer dev` after changing either.
+  - `.env.example` now documents `REVERB_SERVER_PORT`, still 8080 by default.
+  - Checked in a browser: Echo connected to `ws://localhost:8082` and subscribed to `private-contract.4`. A step the agent added over REST appeared on the owner's open page about 0.9 s later, with the "contract changed while you were reviewing it" notice. The broadcast job reported `DONE`; before the move it failed.
+- **Running the dev server from omp:**
+  - Start it as a named service and set `proc://akord-dev/mode` to `detached`, so it survives omp restarts.
+  - Switching the mode starts a second copy, and stopping a service leaves its child processes running on Windows. Check for leftover `artisan`, `concurrently` and `vite` processes and stop them.
+  - Use `TEMP`/`TMP` = `C:\Users\micro\AppData\Local\Temp`. The launcher's temp folder holds locked `sf_proc_*` files that make `composer dev` fail.
