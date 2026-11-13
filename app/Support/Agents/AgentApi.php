@@ -8,6 +8,10 @@ use App\Actions\Comments\AddComment;
 use App\Actions\Contracts\ContractReadiness;
 use App\Actions\Contracts\SignOffContract;
 use App\Actions\Contracts\WithdrawSignOff;
+use App\Actions\Phases\CreatePhase;
+use App\Actions\Steps\ArchiveStep;
+use App\Actions\Steps\CreateStep;
+use App\Actions\Steps\MoveStep;
 use App\Actions\Steps\ReviseStep;
 use App\Enums\CommentKind;
 use App\Enums\ContractAbility;
@@ -147,6 +151,52 @@ final class AgentApi
         $revision = app(ReviseStep::class)->handle($actor, $step, $baseRevision, $title, $descriptionMd, $changeNote);
 
         return AgentPresenter::revision($revision->load(['authorParty', 'authorUser']));
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function createStep(Actor $actor, int $contractId, int $phaseId, string $title, string $descriptionMd, ?string $changeNote, ?int $afterStepId): array
+    {
+        $phase = $this->visibleContract($actor, $contractId)->findPhase($phaseId);
+        $step = app(CreateStep::class)->handle($actor, $phase, $title, $descriptionMd, $changeNote, $afterStepId);
+
+        return $this->step($actor, $contractId, $step->id);
+    }
+
+    /**
+     * @param  int|null  $phaseId  the target phase; null keeps the step in its phase
+     * @return array<string, mixed>
+     */
+    public function moveStep(Actor $actor, int $contractId, int $stepId, ?int $phaseId, ?int $afterStepId): array
+    {
+        $contract = $this->visibleContract($actor, $contractId);
+        $step = $contract->findStep($stepId);
+        $target = $contract->findPhase($phaseId ?? $step->phase_id);
+        $moved = app(MoveStep::class)->handleAfter($actor, $step, $target, $afterStepId);
+
+        return ['step_id' => $moved->id, 'phase_id' => $moved->phase_id, 'position' => $moved->position];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function archiveStep(Actor $actor, int $contractId, int $stepId): array
+    {
+        $step = $this->visibleContract($actor, $contractId)->findStep($stepId);
+        $archived = app(ArchiveStep::class)->handle($actor, $step);
+
+        return ['step_id' => $archived->id, 'archived' => $archived->isArchived()];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function createPhase(Actor $actor, int $contractId, string $title): array
+    {
+        $phase = app(CreatePhase::class)->handle($actor, $this->visibleContract($actor, $contractId), $title);
+
+        return ['id' => $phase->id, 'position' => $phase->position, 'content' => ['title' => $phase->title]];
     }
 
     /**

@@ -36,6 +36,32 @@ class StepController extends AgentApiController
     }
 
     /**
+     * POST /api/v1/contracts/{id}/steps/{id}/move {phase_id?, after_step_id?}
+     * phase_id omitted: same phase. after_step_id omitted: end of the phase; 0: start.
+     */
+    public function move(Request $request, int $contract, int $step): JsonResponse
+    {
+        $v = $request->validate([
+            'phase_id' => ['nullable', 'integer'],
+            'after_step_id' => ['nullable', 'integer', 'min:0'],
+        ]);
+
+        return $this->respond($this->api->moveStep(
+            $this->actor($request), $contract, $step,
+            isset($v['phase_id']) ? (int) $v['phase_id'] : null,
+            isset($v['after_step_id']) ? (int) $v['after_step_id'] : null,
+        ));
+    }
+
+    /**
+     * POST /api/v1/contracts/{id}/steps/{id}/archive. Cannot be undone.
+     */
+    public function archive(Request $request, int $contract, int $step): JsonResponse
+    {
+        return $this->respond($this->api->archiveStep($this->actor($request), $contract, $step));
+    }
+
+    /**
      * GET /api/v1/contracts/{id}/steps/{id}/diff?from=1&to=2
      */
     public function diff(Request $request, int $contract, int $step): JsonResponse

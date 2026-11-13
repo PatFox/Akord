@@ -461,9 +461,59 @@ Replaces "claim a code with curl, then hand-edit `mcp.json`" for MCP clients. Cl
   - Against the running app: `POST /mcp/agents/6` gives 401 with `resource_metadata=…/mcp/agents/6`, and that document has `resource: http://localhost:8000/mcp/agents/6`.
   - Not yet done end to end with omp: a repo with `.omp/mcp.json`, `/mcp reauth akord`, the fixed approval screen, then tools as that party.
 
+### Phase 10: agents change contract structure ✅ done 2026-11-13
+
+**Decisions:**
+- Agents can create steps, move them, create phases and archive steps. All four need the editor role and the `edit` ability; archiving has no separate ability.
+- Agreed contracts refuse all four with `423`, through the existing lock.
+
+**Position: `after_step_id`**, the same for create and move:
+- omitted: the end of the phase;
+- `0`: the start;
+- a step id: directly after that active step of the target phase.
+- Anything else is `422`: an archived step, a step in another phase, or the step itself.
+
+**Changes:**
+- **`App\Support\StepOrder`:**
+  - `positionAfter()` resolves `after_step_id`; `place()` inserts a step and renumbers the phase; `compact()` closes gaps.
+  - Only active steps are numbered, 1..n.
+  - `MoveStep` now uses it, with a new `handleAfter()`; the UI keeps calling `handle()` with a position. `CreateStep` gained `$afterStepId`.
+  - `step.created` now records `position`.
+- **`AgentApi`:** `createStep`, `moveStep` (`phase_id` omitted keeps the step's phase), `createPhase`, `archiveStep`.
+- **REST:**
+  - `POST contracts/{c}/phases` → 201
+  - `POST contracts/{c}/phases/{p}/steps` → 201, returning the `get_step` shape
+  - `POST contracts/{c}/steps/{s}/move`
+  - `POST contracts/{c}/steps/{s}/archive`
+- **MCP tools:** `create_step`, `move_step`, `create_phase`, `archive_step`.
+  - The descriptions say archiving can't be undone and phases can't be deleted.
+  - The server instructions say to change structure only when asked.
+- **`tools/list` paging:** `laravel/mcp` pages `tools/list` at 15 by default, and with 16 tools `withdraw_signoff` fell onto a second page. `ContractServer::$defaultPaginationLength = 50` keeps every tool in one page, for clients that don't follow `nextCursor`.
+- **Skill and plugin:** the skill has a "Changing the structure" section (confirm before archiving). The plugin is now 1.2.0.
+
+**Tests:**
+- `tests/Feature/Actions/StepOrderTest.php` (3): placement at the end, start and after a step; moves within and across phases with no position gaps; refused anchors change nothing.
+- `tests/Feature/Agents/AgentStructureTest.php` (5):
+  - the full REST flow, with the agent's party as author and no user, and activity counts;
+  - the same flow over MCP;
+  - refusals: commenter 403, no `edit` 403, another contract's phase or an invisible contract 404, missing title or bad anchor 422, an MCP refusal as a `403:` tool error, and all four 423 once agreed;
+  - a move keeps approvals and sign-offs, while a new step cancels sign-offs;
+  - archiving the last unapproved step makes the contract ready.
+- `McpServerTest` now expects the 16 tools.
+- Not added: a party-URL author test. `AgentActor` binding at party URLs is already covered by Phase 9's tests.
+
+**Verified:**
+- Pint pass, Larastan 0 errors, `php artisan test` 206 passed plus 1 skipped.
+- Against the running app, as OMP - Akord at `/mcp/agents/7` with a throwaway token, deleted afterwards:
+  - `tools/list` returns 16 tools;
+  - `create_step` after step 7 put step 9 between steps 7 and 8, at revision 1 with author OMP - Akord;
+  - `move_step` with no arguments sent it to the end;
+  - `archive_step` removed it.
+  - `create_phase` wasn't run live, because phases can't be deleted.
+
 ### Order of work
 
-Phases 1–9 are done, in order.
+Phases 1–10 are done, in order.
 
 ## 5. Files and areas
 

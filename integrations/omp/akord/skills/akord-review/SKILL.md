@@ -26,6 +26,15 @@ Each repo's agent represents one party: the repo's `.omp/mcp.json` points the `a
 5. When a step is right, `approve_step` with the revision you read.
 6. When `get_contract_status` says `ready_for_signoff` and the user asks you to: `sign_off_contract` with that fingerprint.
 
+## Changing the structure
+
+Only when the user asks, and only if your party is an editor. `get_contract` gives the phase and step ids.
+
+- `create_step` adds a step to a phase; `move_step` moves one within its phase or to another phase. Both take `after_step_id`: omit it for the end of the phase, `0` for the start, or a step id to go directly after that step.
+- `create_phase` adds a phase at the end of the contract. Phases cannot be deleted.
+- `archive_step` removes a step from the contract. It **cannot be undone**: confirm with the user first.
+- A new or archived step cancels the contract's sign-offs; moving a step does not affect approvals or sign-offs.
+
 ## Catching up
 
 Call `get_activity_since` with `since: 0` the first time, then pass back `next_cursor` to see only what is new. Report changes to the user in your own words.

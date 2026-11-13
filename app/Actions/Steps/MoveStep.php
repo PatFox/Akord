@@ -10,9 +10,11 @@ use App\Models\Step;
 use App\Support\ActivityLog;
 use App\Support\Actor;
 use App\Support\ContractTransaction;
+use App\Support\StepOrder;
+use Closure;
 
 /**
- * Moves a step to a position in a phase of the same contract. Does not affect approvals or sign-offs.
+ * Moves a step within its phase or to another phase of the same contract. Does not affect approvals or sign-offs.
  */
 final class MoveStep
 {
@@ -21,7 +23,23 @@ final class MoveStep
      */
     public function handle(Actor $actor, Step $step, Phase $target, int $position): Step
     {
-        return ContractTransaction::run($step->phase->contract, $actor, ContractAbility::Edit, function (Contract $contract, ActivityLog $log) use ($step, $target, $position): Step {
+        return $this->move($actor, $step, $target, fn (): int => $position);
+    }
+
+    /**
+     * @param  int|null  $afterStepId  null: end of the phase; 0: start; otherwise directly after that step
+     */
+    public function handleAfter(Actor $actor, Step $step, Phase $target, ?int $afterStepId): Step
+    {
+        return $this->move($actor, $step, $target, fn (Phase $target, Step $step): int => StepOrder::positionAfter($target, $afterStepId, $step->id));
+    }
+
+    /**
+     * @param  Closure(Phase, Step): int  $positionIn  resolved inside the contract lock
+     */
+    private function move(Actor $actor, Step $step, Phase $target, Closure $positionIn): Step
+    {
+        return ContractTransaction::run($step->phase->contract, $actor, ContractAbility::Edit, function (Contract $contract, ActivityLog $log) use ($step, $target, $positionIn): Step {
             $step = $contract->findStep($step->id);
             $target = $contract->findPhase($target->id);
             $fromPhaseId = $step->phase_id;
@@ -30,18 +48,10 @@ final class MoveStep
                 throw new InvalidActionException('Archived steps cannot be moved.');
             }
 
-            $remaining = Step::query()->where('phase_id', $fromPhaseId)->active()->whereKeyNot($step->id)->orderBy('position')->pluck('id')->all();
-            foreach ($remaining as $index => $id) {
-                Step::query()->whereKey($id)->update(['position' => $index + 1]);
-            }
+            $position = StepOrder::place($target, $step, $positionIn($target, $step));
 
-            $siblings = Step::query()->where('phase_id', $target->id)->active()->whereKeyNot($step->id)->orderBy('position')->pluck('id')->all();
-            $position = max(1, min($position, count($siblings) + 1));
-            array_splice($siblings, $position - 1, 0, [$step->id]);
-
-            $step->update(['phase_id' => $target->id]);
-            foreach ($siblings as $index => $id) {
-                Step::query()->whereKey($id)->update(['position' => $index + 1]);
+            if ($fromPhaseId !== $target->id) {
+                StepOrder::compact($fromPhaseId);
             }
 
             $log->record('step.moved', $step, ['from_phase_id' => $fromPhaseId, 'to_phase_id' => $target->id, 'position' => $position]);

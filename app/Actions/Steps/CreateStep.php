@@ -11,16 +11,22 @@ use App\Support\ActivityLog;
 use App\Support\Actor;
 use App\Support\ContractAccess;
 use App\Support\ContractTransaction;
+use App\Support\StepOrder;
 
 /**
- * Adds a step, with revision 1, at the end of a phase. Sends the contract back to draft.
+ * Adds a step, with revision 1, to a phase: at the end, or directly after another step
+ * (0: first). Sends the contract back to draft.
  */
 final class CreateStep
 {
-    public function handle(Actor $actor, Phase $phase, string $title, string $descriptionMd, ?string $changeNote = null): Step
+    /**
+     * @param  int|null  $afterStepId  null: end of the phase; 0: start; otherwise directly after that active step (422 if it isn't one)
+     */
+    public function handle(Actor $actor, Phase $phase, string $title, string $descriptionMd, ?string $changeNote = null, ?int $afterStepId = null): Step
     {
-        return ContractTransaction::run($phase->contract, $actor, ContractAbility::Edit, function (Contract $contract, ActivityLog $log) use ($actor, $phase, $title, $descriptionMd, $changeNote): Step {
+        return ContractTransaction::run($phase->contract, $actor, ContractAbility::Edit, function (Contract $contract, ActivityLog $log) use ($actor, $phase, $title, $descriptionMd, $changeNote, $afterStepId): Step {
             $phase = $contract->findPhase($phase->id);
+            $position = StepOrder::positionAfter($phase, $afterStepId);
 
             $step = Step::query()->create([
                 'phase_id' => $phase->id,
@@ -38,9 +44,10 @@ final class CreateStep
             ]);
 
             $step->update(['current_revision_id' => $revision->id]);
-            $log->record('step.created', $step, ['phase_id' => $phase->id, 'revision' => 1]);
+            $position = StepOrder::place($phase, $step, $position);
+            $log->record('step.created', $step, ['phase_id' => $phase->id, 'revision' => 1, 'position' => $position]);
 
-            return $step;
+            return $step->refresh();
         });
     }
 }
