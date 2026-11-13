@@ -1,9 +1,11 @@
 <?php
 
 use App\Actions\Organisations\CreateAgentClaimCode;
+use App\Actions\Organisations\RevokeAgentConnection;
 use App\Actions\Organisations\RevokeAgentToken;
 use App\Livewire\Concerns\RunsActions;
 use App\Models\AgentClaimCode;
+use App\Models\AgentConnection;
 use App\Models\Contract;
 use App\Models\Organisation;
 use App\Models\Party;
@@ -43,6 +45,24 @@ new class extends Component {
     public function tokens(): Collection
     {
         return $this->party->tokens()->latest('id')->get();
+    }
+
+    /**
+     * MCP clients (omp, Claude Code, ...) connected through OAuth sign-in.
+     *
+     * @return Collection<int, AgentConnection>
+     */
+    #[Computed]
+    public function connections(): Collection
+    {
+        return AgentConnection::query()->active()->where('party_id', $this->party->id)->with(['client', 'approver'])->latest('id')->get();
+    }
+
+    public function disconnect(int $connectionId): void
+    {
+        $connection = AgentConnection::query()->where('party_id', $this->party->id)->findOrFail($connectionId);
+        $this->attempt(fn () => app(RevokeAgentConnection::class)->handle(Auth::user(), $this->party, $connection), __('Disconnected.'));
+        unset($this->connections);
     }
 
     /**
@@ -98,7 +118,42 @@ new class extends Component {
     </div>
 
     <div class="space-y-3">
-        <flux:heading size="lg" level="2">{{ __('New claim code') }}</flux:heading>
+        <flux:heading size="lg" level="2">{{ __('Connect an MCP client (recommended)') }}</flux:heading>
+        <flux:text size="sm">{{ __('Tools such as omp sign in with your Akord account in the browser; you then choose this party on the approval screen. No codes or tokens to copy.') }}</flux:text>
+        <div class="space-y-1 text-sm">
+            <div><strong>omp</strong>: <code class="select-all font-mono text-xs">omp plugin marketplace add PatFox/Akord</code>, <code class="select-all font-mono text-xs">omp plugin install akord@akord</code>, {{ __('then in omp') }} <code class="font-mono text-xs">/reload-plugins</code> {{ __('and') }} <code class="font-mono text-xs">/mcp reauth akord</code>.</div>
+            <div>{{ __('Other MCP clients: add the server URL') }} <code class="select-all font-mono text-xs">{{ url('/mcp') }}</code> {{ __('and sign in when asked.') }}</div>
+        </div>
+
+        @if ($this->connections->isNotEmpty())
+            <flux:table>
+                <flux:table.columns>
+                    <flux:table.column>{{ __('Tool') }}</flux:table.column>
+                    <flux:table.column>{{ __('Abilities') }}</flux:table.column>
+                    <flux:table.column>{{ __('Approved by') }}</flux:table.column>
+                    <flux:table.column>{{ __('Last used') }}</flux:table.column>
+                    <flux:table.column></flux:table.column>
+                </flux:table.columns>
+                <flux:table.rows>
+                    @foreach ($this->connections as $connection)
+                        <flux:table.row :key="'connection-'.$connection->id">
+                            <flux:table.cell class="font-medium">{{ $connection->client?->name ?? __('Unknown tool') }}</flux:table.cell>
+                            <flux:table.cell>{{ implode(', ', $connection->abilities) }}</flux:table.cell>
+                            <flux:table.cell>{{ $connection->approver?->name }}</flux:table.cell>
+                            <flux:table.cell>{{ $connection->last_used_at?->diffForHumans() ?? __('Never') }}</flux:table.cell>
+                            <flux:table.cell align="end">
+                                <flux:button size="xs" variant="ghost" icon="x-mark" wire:click="disconnect({{ $connection->id }})" wire:confirm="{{ __('Disconnect this tool? It loses access immediately.') }}">{{ __('Disconnect') }}</flux:button>
+                            </flux:table.cell>
+                        </flux:table.row>
+                    @endforeach
+                </flux:table.rows>
+            </flux:table>
+        @endif
+    </div>
+
+    <div class="space-y-3">
+        <flux:heading size="lg" level="2">{{ __('Or: a one-time claim code') }}</flux:heading>
+        <flux:text size="sm">{{ __('For agents that call the REST API or cannot sign in through a browser.') }}</flux:text>
         <form wire:submit="generate" class="space-y-3">
             <div class="flex flex-wrap gap-4">
                 <flux:checkbox checked disabled :label="__('Read')" />

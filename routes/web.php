@@ -1,8 +1,14 @@
 <?php
 
+use App\Http\Controllers\Agents\ConnectAgentController;
 use Illuminate\Support\Facades\Route;
 
 Route::view('/', 'welcome')->name('home');
+
+// OAuth consent for MCP clients (Passport's GET /oauth/authorize renders oauth.authorize).
+Route::post('oauth/akord/approve', [ConnectAgentController::class, 'approve'])
+    ->middleware(['auth'])
+    ->name('agents.connect.approve');
 
 // Public: the link in an invitation email. Guests are sent to log in or register and come back.
 Route::livewire('invitations/{token}', 'pages::invitations.show')->name('invitations.show');

@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Models\ActivityEvent;
 use App\Models\AgentClaimCode;
+use App\Models\AgentConnection;
 use App\Models\Approval;
 use App\Models\Comment;
 use App\Models\Contract;
@@ -16,6 +17,7 @@ use App\Models\Project;
 use App\Models\Step;
 use App\Models\StepRevision;
 use App\Models\User;
+use App\Support\Agents\AgentActor;
 use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Relations\Relation;
@@ -25,6 +27,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
+use Laravel\Passport\Passport;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -43,6 +46,18 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->configureDefaults();
         $this->configureRateLimits();
+        $this->configureOAuth();
+    }
+
+    /**
+     * Passport issues OAuth tokens to MCP clients (omp, Claude Code, ...). The consent
+     * screen asks the owner which agent party the client acts as.
+     */
+    protected function configureOAuth(): void
+    {
+        Passport::authorizationView('oauth.authorize');
+        Passport::tokensExpireIn(now()->addDay());
+        Passport::refreshTokensExpireIn(now()->addDays(60));
     }
 
     /**
@@ -52,7 +67,7 @@ class AppServiceProvider extends ServiceProvider
     protected function configureRateLimits(): void
     {
         RateLimiter::for('agent', fn (Request $request) => Limit::perMinute((int) config('akord.agents.requests_per_minute'))
-            ->by('agent-party:'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
+            ->by('agent:'.(AgentActor::connectionKey($request->user()) ?? 'ip:'.$request->ip())));
 
         RateLimiter::for('agent-claim', fn (Request $request) => Limit::perMinute(10)->by('agent-claim:'.$request->ip()));
     }
@@ -81,6 +96,7 @@ class AppServiceProvider extends ServiceProvider
             'invitation' => Invitation::class,
             'agent_claim_code' => AgentClaimCode::class,
             'activity_event' => ActivityEvent::class,
+            'agent_connection' => AgentConnection::class,
         ]);
 
         DB::prohibitDestructiveCommands(

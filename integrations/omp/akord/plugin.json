@@ -1,0 +1,6 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "akord",
+  "version": "1.0.0",
+  "description": "Review and agree software-development contracts in Akord: the MCP server (OAuth sign-in) and a contract-review skill."
+}

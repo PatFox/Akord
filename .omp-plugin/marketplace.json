@@ -1,0 +1,13 @@
+{
+  "name": "akord",
+  "owner": {
+    "name": "Akord"
+  },
+  "plugins": [
+    {
+      "name": "akord",
+      "description": "Akord contracts for agents: the MCP server and a contract-review skill.",
+      "source": "./integrations/omp/akord"
+    }
+  ]
+}

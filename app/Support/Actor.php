@@ -53,6 +53,14 @@ final class Actor
     }
 
     /**
+     * @return list<string>
+     */
+    public function abilities(): array
+    {
+        return $this->abilities;
+    }
+
+    /**
      * The model visibility queries are scoped to.
      */
     public function principal(): User|Party

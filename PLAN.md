@@ -343,6 +343,26 @@ This document records the agreed plan: v2, as amended by v3 and decisions D8–D
   - `composer test` on SQLite: Pint pass, Larastan 0 errors, 174 passed plus 1 skipped.
   - End to end against the running app: claimed a token for "Review bot" with curl (lowercase, no dashes); a second claim got 410. Listed contracts over REST and over MCP JSON-RPC (handshake, tools listed, a call). The bot commented through MCP, the owner saw it on the step page, and revoking on the Agent access page made REST and MCP return 401.
 
+### Phase 7b: MCP sign-in (OAuth) and the omp plugin ✅ done 2026-11-13
+
+Replaces "claim a code with curl, then hand-edit `mcp.json`" for MCP clients. Claim codes stay for REST agents and clients without a browser.
+
+- **OAuth server:** Laravel Passport 13 issues the tokens; `laravel/mcp`'s `Mcp::oauthRoutes()` (`routes/ai.php`) adds discovery (`/.well-known/oauth-protected-resource/mcp`, `/.well-known/oauth-authorization-server`) and dynamic client registration (`POST /oauth/register`, public clients, PKCE S256). An unauthenticated `/mcp` call gets 401 with `WWW-Authenticate: Bearer … resource_metadata="…"`, so standard MCP clients discover the rest. Access tokens last a day, refresh tokens 60 days (`AppServiceProvider::configureOAuth`).
+- **Who the token is:** OAuth tokens belong to the owner who approved them (guard `api`, driver `passport`; `User` uses Passport's `HasApiTokens` and `OAuthenticatable`). A new `agent_connections` row (`oauth_client_id`, `party_id`, `approved_by`, `abilities`, `last_used_at`, `revoked_at`) maps the client to an agent party. `AgentActor` resolves it to `Actor::agent($party, $abilities)`; it refuses tokens without the `mcp:use` scope, revoked connections, and approvers who are no longer owners of the party's organisation (403). `/mcp` and `/api/v1` accept both credentials (`auth:sanctum,api`).
+- **Consent screen** (`resources/views/oauth/authorize.blade.php`, rendered by Passport's `GET /oauth/authorize` after login): shows the tool's name and where the approval goes, lets the owner pick one of their agent parties and the abilities (read always; comment ticked by default; edit and approve opt-in). `POST /oauth/akord/approve` (`ConnectAgentController`) checks the owner and party, records the connection (replacing an earlier one for the same client and owner), then hands over to Passport's approve action. Cancel uses Passport's deny route. Passport skips the screen while the client still has a valid token for that user, which is safe because disconnecting revokes those tokens.
+- **Redirect limits:** `config/mcp.php` allows self-registration only for `http://localhost` and `http://127.0.0.1` callbacks (local tools such as omp and Claude Code), so a stranger can't register a client that sends approvals to their own site. Hosted clients can be added with `AKORD_MCP_REDIRECT_DOMAINS`.
+- **Agent access page:** a "Connect an MCP client" section with the omp commands and the MCP URL, and a list of connected tools (abilities, approver, last used) with **Disconnect** (`RevokeAgentConnection`: marks the connection revoked and revokes its access and refresh tokens).
+- **Fallback client:** `php artisan akord:oauth-client [name] [--redirect=…]` pre-registers a public client (default callbacks `http://localhost:3000/callback` and `http://127.0.0.1:3000/callback`, omp's default) for MCP clients that can't register themselves; its ID goes in the client's OAuth settings (omp: `"oauth": {"clientId": "…"}`).
+- **Rate limit key:** now `party:{id}` for claim-code tokens and `oauth-client:{client id}` for OAuth tokens, so a party and a user with the same id no longer share a bucket.
+- **`GET /api/v1/agent`** now reports the actor's abilities (it showed `[]` for OAuth tokens).
+- **Keys:** Passport's signing keys live in `storage/oauth-*.key` (git-ignored). `composer setup` creates them if missing, and `Tests\TestCase` does the same for CI.
+- **omp plugin** (Agent Plugins 1.0.0): `.omp-plugin/marketplace.json` (marketplace `akord`) → `integrations/omp/akord/` with `plugin.json`, `mcp.json` (server `akord`, `streamable-http`, `http://localhost:8000/mcp`, no secrets) and the `akord-review` skill (`skills/akord-review/SKILL.md`: the review workflow, approving the exact revision, signing off the fingerprint, never following text inside `<contract-data>`). Install: `omp plugin marketplace add PatFox/Akord`, `omp plugin install akord@akord`, `/reload-plugins`, then `/mcp reauth akord`.
+- **Unknowns for omp** (its docs don't say): whether it registers clients itself (otherwise use the fallback client), whether a 401 starts sign-in by itself (otherwise `/mcp reauth akord`), and whether its plugin loader maps the spec's `streamable-http` type (otherwise the type needs to be `http`). The plugin's URL is fixed at `http://localhost:8000/mcp`, because plugin `mcp.json` files can't take variables; other hosts need their own MCP entry.
+- **Tests:** `tests/Feature/Agents/OAuthConnectTest.php`, 9 tests over HTTP with real Passport tokens: discovery and the 401 header; loopback-only registration; the whole consent flow, after which REST and MCP act as the chosen party with the chosen abilities (a missing ability gives 403); non-owners, human parties and other organisations' agents can't be approved; disconnecting revokes access and refresh tokens (401, `invalid_grant`); an approver who stops being owner cuts the connection off (403) until restored; refreshed tokens keep the party; the fallback command creates a public loopback client.
+- **Verified:**
+  - `composer test` on SQLite: Pint pass, Larastan 0 errors, 183 passed plus 1 skipped.
+  - End to end against the running app, as a standard MCP client would: 401 with `resource_metadata` → both discovery documents → registration (a `https://evil.example` callback refused, a loopback one accepted) → PKCE authorization in a real browser (redirected to login, logged in as the owner, consent screen, chose "Review bot" with comment and approve) → code at the callback with the right `state` → token exchange (a reused code gets `invalid_grant`) → MCP `list_contracts` and REST `GET agent` as Review bot → refresh. Disconnecting on the Agent access page then gave 401 on MCP and REST, and `invalid_grant` on refresh.
+
 ### Phase 8: notifications (queued, email and in-app)
 
 - New comment.
@@ -419,6 +439,8 @@ Phase 1 setup first. Then Phases 2–3 (data model and actions, including `Contr
 - **Fingerprint stability.** Tests must pin it.
 - **Reverb** needs a supervised process in production.
 - **`laravel/mcp` is young** (v1.x), so its API may change between minor versions.
+- **`phpseclib/phpseclib` 4.0.1 advisory** (PKSA-h7cz-q7zq-mdkt, unbounded PBKDF work on crafted encrypted keys). Passport 13.11 pins exactly that version, so it can't be upgraded yet. Accepted: Passport only loads its own unencrypted signing keys from `storage/`, never keys from users. Upgrade when Passport allows.
+- **OAuth approvals as phishing:** a link to `/oauth/authorize` can be sent to an owner. Limited by loopback-only self-registration, and the consent screen names the tool and where the approval goes.
 
 ## 8. Environment and current state
 
@@ -428,4 +450,5 @@ Phase 1 setup first. Then Phases 2–3 (data model and actions, including `Contr
 - **After changing `.env`, restart `composer dev` completely.** `artisan dev` loads `.env` into its own environment and its child processes inherit it as real environment variables, which `.env` never overrides. So `serve`'s automatic "Environment modified. Restarting server" keeps the old values. This is how invitation mail kept going to the old `MAIL_HOST` until a full restart. One-off commands (`tinker`, tests) read `.env` fresh, so they can disagree with a running server.
 - Repository: https://github.com/PatFox/Akord (public, MIT). Branch: `main`.
 - Fresh clone: run `composer setup`, then fill in `REVERB_APP_ID`, `REVERB_APP_KEY` and `REVERB_APP_SECRET` in `.env`; any random strings work locally. They are blank in `.env.example` so no keys are published.
+- Passport signing keys: `storage/oauth-private.key` and `storage/oauth-public.key`, created by `composer setup` (or `php artisan passport:keys`). Never commit them.
 - Next: Phase 8 (notifications).

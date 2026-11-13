@@ -11,14 +11,15 @@ use App\Http\Controllers\Api\V1\StepController;
 use Illuminate\Support\Facades\Route;
 
 /*
-| Agent REST API (Phase 7). Authenticated with agent tokens (Sanctum bearer tokens);
-| rate limited per agent party. Contracts the agent cannot see are 404.
+| Agent REST API (Phase 7). Authenticated with agent credentials: claim-code tokens
+| (Sanctum) or MCP OAuth tokens (Passport); rate limited per agent. Contracts the agent
+| cannot see are 404.
 */
 
 Route::prefix('v1')->group(function () {
     Route::post('agent/claim', ClaimController::class)->middleware('throttle:agent-claim');
 
-    Route::middleware(['auth:sanctum', 'throttle:agent'])->group(function () {
+    Route::middleware(['auth:sanctum,api', 'throttle:agent'])->group(function () {
         Route::get('agent', MeController::class);
         Route::get('activity', ActivityController::class);
 
