@@ -15,6 +15,10 @@
                     <flux:sidebar.item icon="home" :href="route('dashboard')" :current="request()->routeIs('dashboard')" wire:navigate>
                         {{ __('Organisations') }}
                     </flux:sidebar.item>
+                    @php($unreadNotifications = auth()->user()->unreadNotifications()->count())
+                    <flux:sidebar.item icon="bell" :href="route('notifications.index')" :current="request()->routeIs('notifications.index')" :badge="$unreadNotifications > 0 ? $unreadNotifications : null" wire:navigate data-test="notifications-link">
+                        {{ __('Notifications') }}
+                    </flux:sidebar.item>
                 </flux:sidebar.group>
             </flux:sidebar.nav>
 

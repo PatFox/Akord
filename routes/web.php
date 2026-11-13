@@ -15,6 +15,7 @@ Route::livewire('invitations/{token}', 'pages::invitations.show')->name('invitat
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::livewire('dashboard', 'pages::organisations.index')->name('dashboard');
+    Route::livewire('notifications', 'pages::notifications.index')->name('notifications.index');
 
     Route::livewire('orgs/{organisation:slug}', 'pages::organisations.show')->name('organisations.show');
     Route::livewire('orgs/{organisation:slug}/parties', 'pages::organisations.parties')->name('organisations.parties');

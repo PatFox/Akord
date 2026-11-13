@@ -5,6 +5,7 @@ namespace App\Actions\Steps;
 use App\Enums\ContractAbility;
 use App\Exceptions\InvalidActionException;
 use App\Exceptions\StaleRevisionException;
+use App\Models\Approval;
 use App\Models\Contract;
 use App\Models\Step;
 use App\Models\StepRevision;
@@ -53,10 +54,22 @@ final class ReviseStep
 
             $step->update(['current_revision_id' => $revision->id]);
 
+            $contentChanged = $revision->content_hash !== $current->content_hash;
+
             $log->record('step.revised', $step, [
                 'revision' => $revision->number,
                 'previous_revision' => $current->number,
-                'content_changed' => $revision->content_hash !== $current->content_hash,
+                'content_changed' => $contentChanged,
+                // Parties whose approval counted until this edit (notifications tell them).
+                'cancelled_party_ids' => $contentChanged
+                    ? Approval::query()->active()
+                        ->where('step_id', $step->id)
+                        ->whereRelation('revision', 'content_hash', $current->content_hash)
+                        ->orderBy('party_id')
+                        ->pluck('party_id')
+                        ->map(fn (mixed $id): int => (int) $id)
+                        ->unique()->values()->all()
+                    : [],
             ]);
 
             return $revision;
