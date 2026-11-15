@@ -33,6 +33,7 @@ yarn-error.log
 /.kiro
 /.pi
 /.omp
+/.project
 /.mcp.json
 /AGENTS.md
 /CLAUDE.md
