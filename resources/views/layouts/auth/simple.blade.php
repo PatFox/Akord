@@ -7,10 +7,10 @@
         <div class="bg-background flex min-h-svh flex-col items-center justify-center gap-6 p-6 md:p-10">
             <div class="flex w-full max-w-sm flex-col gap-2">
                 <a href="{{ route('home') }}" class="flex flex-col items-center gap-2 font-medium" wire:navigate>
-                    <span class="flex h-9 w-9 mb-1 items-center justify-center rounded-md">
-                        <x-app-logo-icon class="size-9 fill-current text-black dark:text-white" />
-                    </span>
-                    <span class="sr-only">{{ config('app.name', 'Laravel') }}</span>
+                    {{-- 1920px PNGs of .project/akord-logo-*.svg (see welcome.blade.php for why PNGs). @fluxAppearance follows the
+                         system/user setting, so this page can be light or dark: white text in dark mode, black text in light mode. --}}
+                    <img src="{{ asset('images/akord-logo-white.png') }}" alt="{{ config('app.name', 'Akord') }}" width="574" height="100" class="mb-1 hidden h-auto w-48 dark:block" data-test="akord-logo-dark">
+                    <img src="{{ asset('images/akord-logo-black.png') }}" alt="{{ config('app.name', 'Akord') }}" width="574" height="100" class="mb-1 block h-auto w-48 dark:hidden" data-test="akord-logo-light">
                 </a>
                 <div class="flex flex-col gap-6">
                     {{ $slot }}
