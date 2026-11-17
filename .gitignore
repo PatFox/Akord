@@ -1,5 +1,6 @@
 /.phpunit.cache
 /node_modules
+/dist
 /public/build
 /public/fonts-manifest.dev.json
 /public/hot

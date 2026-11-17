@@ -1,0 +1,60 @@
+name: release
+
+# Push a tag such as v1.2.0 to publish a release: the full test workflow runs first, then
+# scripts/build-release.php builds the archive that scripts/akord.ps1 installs and updates from.
+# Tags with a suffix (v1.2.0-rc.1) become prereleases, which "akord.ps1 update" skips unless asked for by -Version.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    uses: ./.github/workflows/tests.yml
+
+  release:
+    needs: tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2
+        with:
+          php-version: '8.3'
+          extensions: zip
+          tools: composer:v2
+          coverage: none
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+
+      - name: Build the release archive
+        run: php scripts/build-release.php "$GITHUB_REF_NAME"
+
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          flags=()
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then flags+=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" \
+            "dist/akord-$GITHUB_REF_NAME.zip" \
+            "dist/akord-$GITHUB_REF_NAME.zip.sha256" \
+            scripts/akord.ps1 \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Akord $GITHUB_REF_NAME" \
+            --generate-notes \
+            --verify-tag \
+            "${flags[@]}"

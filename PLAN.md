@@ -548,9 +548,75 @@ Replaces "claim a code with curl, then hand-edit `mcp.json`" for MCP clients. Cl
 - Pint pass, Larastan 0 errors, `php artisan test` 209 passed plus 1 skipped.
 - Not run against the live app, because contracts can't be deleted.
 
+### Phase 12: releases and a stable local instance ✅ done 2026-11-17
+
+**Goal.** A local instance for real use, separate from the dev checkout, installed from versioned releases and updated in place.
+
+**Release** (a tag push publishes it):
+- `php scripts/build-release.php vX.Y.Z` builds `dist/akord-vX.Y.Z.zip` and its `.sha256`.
+  - Sources: the files git would commit from the working tree (`git ls-files -z --cached --others --exclude-standard`), so a clean tag checkout builds exactly that tag. `-z` matters: without it git quotes non-ASCII names, and the first test build silently left out the 17 Livewire `⚡` pages (`Unable to find component: [pages::organisations.index]`). Listed files that are missing are now printed, and zip entry names are flagged UTF-8.
+  - Contents: `composer install --no-dev -o`, compiled `public/build`, and a `VERSION` file. Not shipped: tests, CI, the omp plugin, PLAN.md, tool configs, `node_modules` and the Vite/npm files.
+- `.github/workflows/release.yml` runs on `v*` tags. It calls `tests.yml` (both jobs; `tests.yml` now also has `workflow_call`), then builds and runs `gh release create` with the zip, its `.sha256` and `scripts/akord.ps1`. A tag with a suffix (`v1.2.0-rc.1`) becomes a prerelease, which `releases/latest`, and so `update`, skips.
+- **Echo reads Reverb settings at runtime.** `partials/head.blade.php` sets `window.akordReverb` (key, host, port, scheme) from `config('broadcasting.connections.reverb')`, and `resources/js/echo.js` uses it. Before this, `VITE_REVERB_*` were compiled into the bundle, so a prebuilt release would have carried one instance's key and port. `VITE_REVERB_*` are gone from `.env.example`.
+
+**Instance** (`scripts/akord.ps1`, Windows PowerShell 5.1; needs PHP 8.3+ on `PATH` and no Node or Composer):
+- Commands: `install`, `update`, `start`, `stop`, `restart`, `status`, `uninstall`, and `run` (internal).
+- Options: `-Version vX.Y.Z` (default latest), `-Package <zip>` (a local build instead of a download), `-Root`, `-Port`/`-ReverbPort` (install only), `-NoAutostart`, `-Force`.
+- **Layout** of `-Root` (default `%LOCALAPPDATA%\Akord`):
+  - `shared\.env`: the instance settings.
+  - `shared\storage`: logs, Passport keys and compiled views. Linked into each release with a junction.
+  - `shared\database\akord.sqlite`.
+  - `releases\<version>`, with the `current` junction pointing at the active one.
+  - `backups\`, `run\supervisor.pid`, and `akord.ps1` itself (each release brings its own copy).
+  - Junctions need no admin rights. Deleting a release unlinks its `storage` junction first, so the recursive delete never reaches the shared storage.
+- **Install:**
+  - Checks PHP and its extensions, and that both ports are free.
+  - Downloads the release and verifies its SHA-256.
+  - Writes `shared\.env` from the release's `.env.example`: `APP_ENV=production`, `APP_DEBUG=false`, a new `APP_KEY`, `APP_URL=http://localhost:<port>`, daily logs, an absolute `DB_DATABASE`, random Reverb credentials, and Reverb bound to `127.0.0.1`.
+  - Also sets `SESSION_COOKIE=akord_<port>_session`, because browsers share cookies across ports, so dev and the instance on `localhost` would otherwise log each other out. `MAIL_MAILER=log`, so verification links are written to the log.
+  - Then `passport:keys`, `migrate --force`, a Startup-folder shortcut (`Akord.lnk`, runs `start` hidden at logon), and `start`.
+- **Start:**
+  - Copies `shared\.env` into the release and runs `artisan optimize` (config, events, routes and views cached).
+  - Starts the hidden supervisor (`akord.ps1 run`) and waits up to 60 s for `/up` to answer 200 and the Reverb port to listen.
+  - The supervisor runs `php -S 127.0.0.1:<port>` with Laravel's `server.php`, `reverb:start`, and `queue:work --tries=3 --max-time=3600`.
+  - Each child appends its output to `storage\logs\<name>.log`. A child that exits is restarted: after 1 s if it ran for at least 60 s, otherwise with a delay that doubles up to 60 s. `supervisor.log` records every start and exit.
+  - `stop` kills the supervisor's whole process tree and waits for both ports to close.
+- **Update:**
+  - Unpacks the new release and prepares it while the old one keeps running.
+  - Then stops, copies the database to `backups\akord-<old version>-<time>.sqlite`, migrates, switches `current`, and starts.
+  - If any of that fails, it restores the backup, switches back and starts the old release.
+  - Keeps 3 releases and 10 backups.
+- **Inherited environment:** every command first removes from its own environment each key in `shared\.env` and the release's `.env.example`. omp and `artisan dev` export the project's `.env`, and real environment variables override `.env` and would be baked in by `config:cache`. This is how, on 2026-11-16, a server started from omp got Git Bash's mangled `SESSION_PATH` (`C:/Program Files/Git/`) and returned 500.
+- **Known limits:**
+  - On Windows `php -S` handles one request at a time (`PHP_CLI_SERVER_WORKERS` is not supported there). That is enough for one person and a few agents.
+  - No manual rollback command. Restore by hand from `backups\` and point `current` at the older release.
+  - The `XSRF-TOKEN` and remember-me cookie names don't depend on `SESSION_COOKIE`, so they are still shared with dev on `localhost`. A mismatched remember-me cookie is ignored. Livewire sends its CSRF token from the page, not from that cookie.
+  - **PHP needs a CA bundle for outgoing HTTPS.** Without `curl.cainfo` or `openssl.cafile`, the breach check on new passwords in production (`Password::defaults()->uncompromised()`) fails with cURL error 60; Laravel logs it and accepts the password. TLS mail would fail the same way. `install` and `update` warn when neither is set. This machine had neither until 2026-11-17 (see §8).
+  - `LOG_LEVEL` must stay `debug` while `MAIL_MAILER=log`: the log transport writes mail at debug level, so with `info` the verification emails vanished. `install` keeps `.env.example`'s `debug`.
+
+**Verified** (2026-11-17, local builds `v0.0.1-test.1` and `v0.0.2-test.1` installed into a throwaway root with `-Package`; the root and builds were deleted afterwards; nothing published):
+- `build-release.php`: about 2.5 minutes, 16 MB, 12.8k entries. No tests, `.env`, `public/hot`, dev packages or keys inside.
+- `install`, run from a Git Bash shell that had the dev `.env` exported: the cached config held the instance's values (`session.path` `/`, port 8100 and 8101, Reverb on `127.0.0.1`, absolute SQLite path), and the session cookie was `akord_8100_session`.
+- Reverb accepted a WebSocket with the instance key (`pusher:connection_established`). `Artisan::queue('inspire')` ran on the worker.
+- Killing the Reverb process: the supervisor logged the exit and restarted it 2 s later.
+- In a browser: registered, verified through the link from the log, and reached the dashboard. Echo reported `connected` to `localhost:8101` from the prebuilt bundle.
+- `update` 0.0.1 → 0.0.2 kept the session and data. `update` to a release whose second migration throws (the first creates a table): exit 1, the database restored without that table, `current` back on 0.0.2, healthy.
+- `update` with the active version printed "Already on". A `-Force` reinstall pruned the oldest release, and the shared storage (logs, keys) survived the delete.
+- `uninstall`: both ports freed, no processes left.
+- Not yet run: the release workflow on GitHub, an install from a published release (download and checksum), and logon autostart.
+
+**Publishing a release:** `git tag v0.1.0 && git push origin v0.1.0`. Then install with:
+
+```powershell
+Invoke-WebRequest https://github.com/PatFox/Akord/releases/latest/download/akord.ps1 -OutFile akord.ps1
+powershell -ExecutionPolicy Bypass -File .\akord.ps1 install
+```
+
+Update with `powershell -ExecutionPolicy Bypass -File $env:LOCALAPPDATA\Akord\akord.ps1 update`. Agents use the instance's URL in their repo's `.omp/mcp.json` (`http://localhost:8100/mcp/agents/<id>`).
+
 ### Order of work
 
-Phases 1–11 are done, in order.
+Phases 1–12 are done, in order.
 
 ## 5. Files and areas
 
@@ -620,6 +686,7 @@ Phases 1–11 are done, in order.
 ## 8. Environment and current state
 
 - PHP 8.3.23 (NTS x64), with pdo_sqlite, sqlite3, intl, mbstring, sodium, sockets, zip, bcmath, gd, openssl and curl. Composer 2.8.4, Node v24.20.0, npm 11.19.0, git 2.44.0.
+  - CA bundle (2026-11-17): `C:\Program Files\php\extras\ssl\cacert.pem` (curl.se's Mozilla bundle dated 2026-11-05, SHA-256 checked), set as `curl.cainfo` and `openssl.cafile` in `C:\Program Files\php\php.ini`. The previous ini is `php.ini.bak-20261117-110806`. Editing it needs admin. Refresh the bundle now and then from https://curl.se/ca/cacert.pem.
 - The global `laravel` installer is broken in bash. Use `composer create-project` instead, or call the installer through `php`.
 - Run the app with `composer dev` (`php artisan dev`). It starts serve, `queue:listen`, Vite, and `reverb:start`; Reverb registers itself. Pail is skipped on Windows because it needs `pcntl`.
 - **After changing `.env`, restart `composer dev` completely.** `artisan dev` loads `.env` into its own environment and its child processes inherit it as real environment variables, which `.env` never overrides. So `serve`'s automatic "Environment modified. Restarting server" keeps the old values. This is how invitation mail kept going to the old `MAIL_HOST` until a full restart. One-off commands (`tinker`, tests) read `.env` fresh, so they can disagree with a running server.
@@ -631,9 +698,10 @@ Phases 1–11 are done, in order.
   - Phase 9 end to end with omp in two repos.
 - **Reverb port on this machine: 8082** (2026-11-13).
   - 8080 is the `monavate-bank-api` Docker container, and 8081 is the `monavate-bank-mobile` Expo dev server.
-  - `.env` sets `REVERB_PORT=8082` and `REVERB_SERVER_PORT=8082`. Vite reads `VITE_REVERB_PORT` from `REVERB_PORT` when it starts, so restart `composer dev` after changing either.
+  - `.env` sets `REVERB_PORT=8082` and `REVERB_SERVER_PORT=8082`. Since Phase 12 the page passes them to Echo at runtime, so Vite no longer needs restarting; `composer dev` still does (see above). The `VITE_REVERB_*` lines left in this machine's `.env` are unused.
   - `.env.example` now documents `REVERB_SERVER_PORT`, still 8080 by default.
   - Checked in a browser: Echo connected to `ws://localhost:8082` and subscribed to `private-contract.4`. A step the agent added over REST appeared on the owner's open page about 0.9 s later, with the "contract changed while you were reviewing it" notice. The broadcast job reported `DONE`; before the move it failed.
+- **Stable instance on this machine:** ports 8100 (web) and 8101 (Reverb), so it runs beside dev (8000, 8082, Vite 5173).
 - **Running the dev server from omp:**
   - Start it as a named service and set `proc://akord-dev/mode` to `detached`, so it survives omp restarts.
   - Switching the mode starts a second copy, and stopping a service leaves its child processes running on Windows. Check for leftover `artisan`, `concurrently` and `vite` processes and stop them.
