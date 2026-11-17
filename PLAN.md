@@ -605,6 +605,22 @@ Replaces "claim a code with curl, then hand-edit `mcp.json`" for MCP clients. Cl
 - `uninstall`: both ports freed, no processes left.
 - Not yet run: the release workflow on GitHub, an install from a published release (download and checksum), and logon autostart.
 
+**Ubuntu server (README "Installing on an Ubuntu server", added 2026-11-17):** a manual alternative to the Windows instance, from the same release zip. There is no script.
+- **Server:** Ubuntu 24.04 (PHP 8.3), Apache vhost, PHP through **PHP-FPM** (event MPM, `proxy_fcgi`, recommended) or **mod_php** (prefork).
+- **Layout:** `/var/www/akord/{releases,shared,backups}` with a `current` symlink; `storage` and `.env` are symlinks into `shared/`. Everything is owned by `www-data`, and artisan runs as `www-data`.
+- **Reverb:** listens on `127.0.0.1:8080`. The vhost proxies `/app/` (with `upgrade=websocket`, Apache 2.4.47+) and `/apps/`, so browsers and the server-side publisher both use `https://<domain>:443`. No app route starts with `/app/` or `/apps/`.
+- **Processes:** Reverb and `queue:work` run as systemd units. Certbot handles HTTPS.
+- **Updates:** unpack and `optimize` beside the running release, then `artisan down`, stop the units, copy the SQLite file, migrate, switch the symlink, reload PHP, start the units, `artisan up`. Maintenance mode lives in the shared storage, so both releases honour it.
+- **Verified** in an `ubuntu:24.04` container from a local build, following the README's commands. Deviations: http on port 8090, no certbot, no systemd (the units' `ExecStart` lines run by hand), and the zip mounted instead of downloaded.
+  - With both FPM and mod_php: `/up` 200, and PHP receives `Authorization`. A Sanctum token worked over REST (`/api/v1/agent`) and MCP (`initialize` at `/mcp/agents/1`).
+  - Echo connected through the `/app/` proxy, and an event published from the server through `/apps/` reached the browser.
+  - Registration, plus verification through the README's `grep` command.
+  - Update to a second build and back again, with 503 during maintenance.
+  - Switching mod_php → FPM as documented.
+  - Without the reload, mod_php kept serving the old release after the symlink switch; with FPM the switch showed at once. So the update step's reload is required for mod_php.
+  - `libapache2-mod-php8.3` switches the MPM to prefork by itself.
+  - Stopping Apache waits about 10 s while a WebSocket is proxied.
+
 **Publishing a release:** `git tag v0.1.0 && git push origin v0.1.0`. Then install with:
 
 ```powershell
