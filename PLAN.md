@@ -684,7 +684,16 @@ Update with `powershell -ExecutionPolicy Bypass -File $env:LOCALAPPDATA\Akord\ak
   - The comment actually answered is kept as `in_reply_to` in the `comment.added` payload, set only when it differs from `parent_id`.
   - The MCP `parent_id` description and the skill (plugin 1.3.1) say so.
   - Test: `StepPageTest` "a reply to a reply joins its thread".
-- **NUC03 data:** the two affected comments were moved to their thread's top-level comment: `hv5omyrbhpe9qwjk` to `qnz7iumccc5fn3km`, and `neb5e12tdq5ldwtc` to `2vjp5sv74uf200xk`. Their original parents are still in their events' payload `parent_id`. No comments are nested deeper now. The code fix reaches NUC03 with its next release; until then a new reply to a reply is hidden again and needs the same update.
+- **NUC03 data:** the two affected comments were moved to their thread's top-level comment: `hv5omyrbhpe9qwjk` to `qnz7iumccc5fn3km`, and `neb5e12tdq5ldwtc` to `2vjp5sv74uf200xk`. Their original parents are still in their events' payload `parent_id`. No comments are nested deeper now. The code fix was deployed to NUC03 on 2026-11-18 in `v0.1.0-pre.eab7f57` (§8).
+
+### Fix: long change notes failed with 500 on MySQL (2026-11-18)
+
+- **Bug:** the web form, REST API and MCP tools accept change notes up to 500 characters, but `step_revisions.change_note` was `varchar(255)`. MySQL (strict mode) refused longer notes (`1406 Data too long`), so `revise_step` and `create_step` failed with 500. An agent on NUC03 hit it with a 332-character note. SQLite ignores varchar lengths, so the SQLite suite never saw it. It is present since Phase 2.
+- **Fix:** migration `2026_11_18_180000_widen_step_revision_change_note` makes the column `varchar(500)` with `->change()`.
+  - On MySQL this is an in-place `ALTER`.
+  - On SQLite Laravel rebuilds the table. That was checked on demo data: revisions, current-revision links and comments were kept, with no foreign-key violations.
+  - The other text fields were already safe: titles are validated to 200 and names to 120, both under 255.
+- **Test:** `AgentApiTest` "a change note up to the advertised 500 characters…": 500 characters are saved whole, and 501 give 422. On MySQL it fails without the migration and passes with it. On SQLite it can't fail, so CI's MySQL job is what guards it.
 
 ### Order of work
 
@@ -776,7 +785,11 @@ Phases 1–13 are done, in order.
 - **Stable instance on this machine:** ports 8100 (web) and 8101 (Reverb), so it runs beside dev (8000, 8082, Vite 5173).
 - **Server instance on NUC03 (`http://akord.nuc03`), installed 2026-11-17, moved to MySQL the same day:**
   - **Server:** `pat@192.168.1.205` (key in `~/.ssh/config`), running Ubuntu **26.04**, Apache 2.4.66 and PHP **8.5.4** with **mod_php** (prefork), like the other `.nuc03` vhosts. `sudo` needs a password, so root steps go to the user as a script.
-  - **Release:** `v0.1.0-pre.8b88971.ids`, a local `build-release.php` of the working tree: `8b88971` plus the then-uncommitted Phase 13 (random ids). It was copied over with scp; no GitHub release existed yet. Laravel 13.42 runs on PHP 8.5 without errors. The first release, `v0.1.0-pre.8b88971` (integer ids, SQLite), is still in `releases/`.
+  - **Release:** `v0.1.0-pre.eab7f57`, a local `build-release.php` of `main` at `eab7f57` (Phase 13 plus the comment-thread fix, CI green). Deployed 2026-11-18 with scp; no GitHub release exists yet.
+    - The update script followed the README with the §8 changes. The `mysqldump` backup is `backups/akord-v0.1.0-pre.8b88971.ids-20261118-174050.sql`, and there was nothing to migrate.
+    - There was no Apache reload: after 2 minutes in maintenance mode, all 20 probe requests ran the new release.
+    - Laravel 13.42 runs on PHP 8.5 without errors.
+    - Earlier releases still in `releases/`: `v0.1.0-pre.8b88971.ids` (the uncommitted Phase 13 build, MySQL) and `v0.1.0-pre.8b88971` (integer ids, SQLite).
   - **Database:** MySQL **8.4.13**. Database `akord` (utf8mb4), user `akord@localhost` (`caching_sha2_password`, rights on `akord.*` only).
     - Akord connects over the Unix socket: `DB_SOCKET=/var/run/mysqld/mysqld.sock`. The password is only in `shared/.env`.
     - MySQL `root` has its own password (not socket auth), so creating databases or users needs the user (`mysql -u root -p`); `sudo` alone is refused.

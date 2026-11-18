@@ -57,6 +57,21 @@ test('agents revise steps and comment, with stale edits refused', function () {
         ->assertCreated()->assertJsonPath('data.content.body_md', 'Add rate limits.')->assertJsonPath('data.author.user', null);
 });
 
+// The length limit is only enforced by MySQL; the CI MySQL job is what catches a too-small column.
+test('a change note up to the advertised 500 characters is saved whole; a longer one is refused with 422', function () {
+    $note = str_repeat('n', 500);
+
+    $this->agent->api('PUT', "contracts/{$this->id}/steps/{$this->step->id}", [
+        'base_revision' => 1, 'title' => 'Build the API', 'description_md' => 'Agent wording.', 'change_note' => $note,
+    ])->assertOk();
+
+    $this->agent->api('PUT', "contracts/{$this->id}/steps/{$this->step->id}", [
+        'base_revision' => 2, 'title' => 'Build the API', 'description_md' => 'Again.', 'change_note' => $note.'n',
+    ])->assertUnprocessable();
+
+    expect($this->step->fresh()?->currentRevision?->change_note)->toBe($note);
+});
+
 test('the diff endpoint returns a unified diff of two revisions', function () {
     app(ReviseStep::class)->handle($this->s->alpha, $this->step, 1, 'Build the API', 'Endpoints for **contracts** and steps.');
 
