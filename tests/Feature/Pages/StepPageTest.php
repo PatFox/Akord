@@ -91,8 +91,11 @@ test('people comment, reply and resolve from the page', function () {
 });
 
 test('a reply to a reply joins its thread, so the page shows it', function () {
+    // A second apart: replies are ordered by created_at, which MySQL stores to the second.
     $question = app(AddComment::class)->handle($this->s->beta, $this->step, CommentKind::Question, 'Which status codes?');
+    $this->travel(1)->seconds();
     $answer = app(AddComment::class)->handle($this->s->alpha, $this->step, CommentKind::General, 'See the error step.', $question);
+    $this->travel(1)->seconds();
     $followUp = app(AddComment::class)->handle($this->s->beta, $this->step, CommentKind::General, 'Including 409?', $answer);
 
     expect($followUp->parent_id)->toBe($question->id)

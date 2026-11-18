@@ -654,6 +654,7 @@ Update with `powershell -ExecutionPolicy Bypass -File $env:LOCALAPPDATA\Akord\ak
   - `ActivitySequencer` numbers pending events by `(contract_id, position)`, and the contract page's change list orders by `position`.
   - "Latest connection" in `AgentActor` is ordered by `created_at`, then id, because re-approval creates a new row. `AgentApi::listContracts` uses `created_at`, then id.
   - Where id only breaks ties (steps with the same position, notification recipients), it stays.
+  - **Known limit (found 2026-11-18):** lists ordered by `created_at` (comment threads and replies, invitations, claim codes) have no stable order within one second. Timestamps are whole seconds on MySQL, and random ids don't break ties in creation order, while auto-increment ids used to. So two replies posted in the same second can show in either order. `StepPageTest`'s reply test failed once on CI's MySQL because of this; it now spaces its comments a second apart. A real fix would need a sequence column or sub-second timestamps.
 - **API and MCP:**
   - Every entity id is a JSON string. Validation and MCP schemas say string, and routes constrain ids to `RandomId::PATTERN`.
   - `after_step_id`'s start value is `"start"` (`StepOrder::START`) instead of `0`.
