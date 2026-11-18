@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\HasRandomId;
 use Database\Factories\AgentClaimCodeFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -13,11 +14,11 @@ use Illuminate\Support\Carbon;
 /**
  * One-time code an agent exchanges for an API token.
  *
- * @property int $id
- * @property int $party_id
+ * @property string $id
+ * @property string $party_id
  * @property string $code_hash
  * @property list<string>|null $abilities
- * @property int|null $created_by
+ * @property string|null $created_by
  * @property Carbon $expires_at
  * @property Carbon|null $claimed_at
  * @property Carbon|null $created_at
@@ -28,7 +29,7 @@ use Illuminate\Support\Carbon;
 class AgentClaimCode extends Model
 {
     /** @use HasFactory<AgentClaimCodeFactory> */
-    use HasFactory;
+    use HasFactory, HasRandomId;
 
     /**
      * @return array<string, string>

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Casts\NormalisedEmail;
+use App\Models\Concerns\HasRandomId;
 use Database\Factories\InvitationFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -14,17 +15,17 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
 
 /**
- * @property int $id
- * @property int $organisation_id
- * @property int $contract_id
- * @property int $party_id
+ * @property string $id
+ * @property string $organisation_id
+ * @property string $contract_id
+ * @property string $party_id
  * @property string $email
  * @property string $token_hash
  * @property Carbon $expires_at
  * @property Carbon|null $accepted_at
  * @property Carbon|null $revoked_at
- * @property int|null $accepted_user_id
- * @property int|null $invited_by
+ * @property string|null $accepted_user_id
+ * @property string|null $invited_by
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
@@ -33,7 +34,7 @@ use Illuminate\Support\Carbon;
 class Invitation extends Model
 {
     /** @use HasFactory<InvitationFactory> */
-    use HasFactory;
+    use HasFactory, HasRandomId;
 
     /**
      * @return array<string, string>

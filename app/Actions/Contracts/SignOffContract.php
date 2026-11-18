@@ -66,7 +66,7 @@ final class SignOffContract
                 $log->record('signoff.created', $signoff, ['fingerprint' => $fingerprint]);
             }
 
-            $signedOff = array_unique([...$report->signedOffPartyIds, (int) $party->getKey()]);
+            $signedOff = array_unique([...$report->signedOffPartyIds, $party->id]);
 
             if (array_diff($report->requiredPartyIds, $signedOff) === []) {
                 $contract->forceFill(['agreed_at' => now(), 'agreed_fingerprint' => $fingerprint])->save();

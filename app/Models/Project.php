@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\OrganisationRole;
+use App\Models\Concerns\HasRandomId;
 use Database\Factories\ProjectFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Scope;
@@ -14,8 +15,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 /**
- * @property int $id
- * @property int $organisation_id
+ * @property string $id
+ * @property string $organisation_id
  * @property string $name
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
@@ -24,7 +25,7 @@ use Illuminate\Support\Carbon;
 class Project extends Model
 {
     /** @use HasFactory<ProjectFactory> */
-    use HasFactory;
+    use HasFactory, HasRandomId;
 
     /**
      * @return BelongsTo<Organisation, $this>

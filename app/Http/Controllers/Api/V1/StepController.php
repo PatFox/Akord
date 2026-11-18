@@ -7,7 +7,7 @@ use Illuminate\Http\Request;
 
 class StepController extends AgentApiController
 {
-    public function show(Request $request, int $contract, int $step): JsonResponse
+    public function show(Request $request, string $contract, string $step): JsonResponse
     {
         return $this->respond($this->api->step($this->actor($request), $contract, $step));
     }
@@ -16,7 +16,7 @@ class StepController extends AgentApiController
      * PUT /api/v1/contracts/{id}/steps/{id} {base_revision, title, description_md, change_note?}
      * 409 if base_revision is no longer the current revision.
      */
-    public function update(Request $request, int $contract, int $step): JsonResponse
+    public function update(Request $request, string $contract, string $step): JsonResponse
     {
         $v = $request->validate([
             'base_revision' => ['required', 'integer', 'min:1'],
@@ -30,33 +30,33 @@ class StepController extends AgentApiController
         ));
     }
 
-    public function revisions(Request $request, int $contract, int $step): JsonResponse
+    public function revisions(Request $request, string $contract, string $step): JsonResponse
     {
         return $this->respond($this->api->stepHistory($this->actor($request), $contract, $step));
     }
 
     /**
      * POST /api/v1/contracts/{id}/steps/{id}/move {phase_id?, after_step_id?}
-     * phase_id omitted: same phase. after_step_id omitted: end of the phase; 0: start.
+     * phase_id omitted: same phase. after_step_id omitted: end of the phase; "start": start.
      */
-    public function move(Request $request, int $contract, int $step): JsonResponse
+    public function move(Request $request, string $contract, string $step): JsonResponse
     {
         $v = $request->validate([
-            'phase_id' => ['nullable', 'integer'],
-            'after_step_id' => ['nullable', 'integer', 'min:0'],
+            'phase_id' => ['nullable', 'string'],
+            'after_step_id' => ['nullable', 'string'],
         ]);
 
         return $this->respond($this->api->moveStep(
             $this->actor($request), $contract, $step,
-            isset($v['phase_id']) ? (int) $v['phase_id'] : null,
-            isset($v['after_step_id']) ? (int) $v['after_step_id'] : null,
+            $v['phase_id'] ?? null,
+            $v['after_step_id'] ?? null,
         ));
     }
 
     /**
      * POST /api/v1/contracts/{id}/steps/{id}/archive. Cannot be undone.
      */
-    public function archive(Request $request, int $contract, int $step): JsonResponse
+    public function archive(Request $request, string $contract, string $step): JsonResponse
     {
         return $this->respond($this->api->archiveStep($this->actor($request), $contract, $step));
     }
@@ -64,7 +64,7 @@ class StepController extends AgentApiController
     /**
      * GET /api/v1/contracts/{id}/steps/{id}/diff?from=1&to=2
      */
-    public function diff(Request $request, int $contract, int $step): JsonResponse
+    public function diff(Request $request, string $contract, string $step): JsonResponse
     {
         $v = $request->validate(['from' => ['required', 'integer', 'min:1'], 'to' => ['required', 'integer', 'min:1']]);
 

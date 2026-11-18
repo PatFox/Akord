@@ -19,11 +19,11 @@ class ReviseStep extends AgentTool
     {
         return $this->run($request, function (AgentApi $api, Actor $actor) use ($request) {
             $v = $request->validate([
-                'contract_id' => 'required|integer', 'step_id' => 'required|integer', 'base_revision' => 'required|integer|min:1',
+                'contract_id' => 'required|string', 'step_id' => 'required|string', 'base_revision' => 'required|integer|min:1',
                 'title' => 'required|string|max:200', 'description_md' => 'present|nullable|string|max:20000', 'change_note' => 'nullable|string|max:500',
             ]);
 
-            return $api->reviseStep($actor, (int) $v['contract_id'], (int) $v['step_id'], (int) $v['base_revision'], $v['title'], $v['description_md'] ?? '', $v['change_note'] ?? null);
+            return $api->reviseStep($actor, $v['contract_id'], $v['step_id'], (int) $v['base_revision'], $v['title'], $v['description_md'] ?? '', $v['change_note'] ?? null);
         });
     }
 
@@ -33,8 +33,8 @@ class ReviseStep extends AgentTool
     public function schema(JsonSchema $schema): array
     {
         return [
-            'contract_id' => $schema->integer()->required(),
-            'step_id' => $schema->integer()->required(),
+            'contract_id' => $schema->string()->required(),
+            'step_id' => $schema->string()->required(),
             'base_revision' => $schema->integer()->min(1)->description('The revision number you started from.')->required(),
             'title' => $schema->string()->required(),
             'description_md' => $schema->string()->description('The full new description (Markdown).')->required(),

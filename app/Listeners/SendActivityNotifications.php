@@ -62,7 +62,7 @@ class SendActivityNotifications implements ShouldQueue
      * Everyone is told about the edit; members of parties whose approval it cancelled are also told that.
      *
      * @param  Collection<int, User>  $recipients
-     * @param  list<int>  $cancelledPartyIds
+     * @param  list<string>  $cancelledPartyIds
      */
     private function sendRevision(ActivityEvent $activity, Contract $contract, Collection $recipients, array $cancelledPartyIds): void
     {
@@ -76,7 +76,7 @@ class SendActivityNotifications implements ShouldQueue
     /**
      * People in the contract's attached parties, optionally only some of those parties.
      *
-     * @param  list<int>|null  $partyIds
+     * @param  list<string>|null  $partyIds
      * @return Collection<int, User>
      */
     private function members(Contract $contract, ?array $partyIds = null): Collection
@@ -96,16 +96,17 @@ class SendActivityNotifications implements ShouldQueue
      */
     private function inviter(array $payload): Collection
     {
-        $inviterId = Invitation::query()->whereKey($payload['invitation_id'] ?? 0)->value('invited_by');
+        $invitationId = $payload['invitation_id'] ?? null;
+        $inviterId = is_string($invitationId) ? Invitation::query()->whereKey($invitationId)->value('invited_by') : null;
 
-        return User::query()->whereKey($inviterId ?? 0)->get();
+        return $inviterId === null ? new Collection : User::query()->whereKey($inviterId)->get();
     }
 
     /**
-     * @return list<int>
+     * @return list<string>
      */
     private function ids(mixed $ids): array
     {
-        return is_array($ids) ? array_values(array_map(intval(...), $ids)) : [];
+        return is_array($ids) ? array_values(array_filter($ids, is_string(...))) : [];
     }
 }

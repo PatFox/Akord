@@ -16,10 +16,10 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('agent_connections', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('party_id')->constrained()->cascadeOnDelete();
+            $table->randomId();
+            $table->foreignRandomId('party_id')->constrained()->cascadeOnDelete();
             $table->uuid('oauth_client_id')->index();
-            $table->foreignId('approved_by')->constrained('users')->cascadeOnDelete();
+            $table->foreignRandomId('approved_by')->constrained('users')->cascadeOnDelete();
             $table->json('abilities');
             $table->timestamp('last_used_at')->nullable();
             $table->timestamp('revoked_at')->nullable();

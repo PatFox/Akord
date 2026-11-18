@@ -20,8 +20,8 @@ $app->make(Kernel::class)->bootstrap();
 
 [, $contractId, $partyId, $userId, $fingerprint, $startAt] = $argv;
 
-$actor = Actor::user(User::query()->findOrFail((int) $userId), Party::query()->findOrFail((int) $partyId));
-$contract = Contract::query()->findOrFail((int) $contractId);
+$actor = Actor::user(User::query()->findOrFail($userId), Party::query()->findOrFail($partyId));
+$contract = Contract::query()->findOrFail($contractId);
 
 while (microtime(true) < (float) $startAt) {
     usleep(100);

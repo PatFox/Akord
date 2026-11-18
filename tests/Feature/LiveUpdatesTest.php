@@ -19,19 +19,19 @@ beforeEach(function () {
 });
 
 /**
- * Deliver every activity recorded after $afterId to a page, one broadcast each, as Echo does.
+ * Deliver every activity the contract recorded after $afterPosition to a page, one broadcast each, as Echo does.
  */
-function deliverActivitySince(object $page, Scenario $s, int $afterId): object
+function deliverActivitySince(object $page, Scenario $s, int $afterPosition): object
 {
-    ActivityEvent::query()->where('contract_id', $s->contract->id)->where('id', '>', $afterId)->orderBy('id')->get()
+    ActivityEvent::query()->where('contract_id', $s->contract->id)->where('position', '>', $afterPosition)->orderBy('position')->get()
         ->each(fn (ActivityEvent $a) => $page->dispatch('echo-private:contract.'.$s->contract->id.',.activity', ['id' => $a->id, 'type' => $a->type]));
 
     return $page;
 }
 
-function lastActivityId(): int
+function lastActivityPosition(Scenario $s): int
 {
-    return (int) ActivityEvent::query()->max('id');
+    return (int) ActivityEvent::query()->where('contract_id', $s->contract->id)->max('position');
 }
 
 test('only people who can see the contract may subscribe to its channel', function () {
@@ -76,7 +76,7 @@ test('a content change while reviewing holds sign-off until the person acknowled
     $otherEditor = $this->s->party(ContractRole::Editor);
     $this->actingAs($this->s->alpha->user);
     $page = Livewire::test('pages::contracts.show', ['contract' => $this->s->contract]);
-    $opened = lastActivityId();
+    $opened = lastActivityPosition($this->s);
 
     $added = app(CreateStep::class)->handle($otherEditor, $this->s->phase, 'Late step', 'Added meanwhile.');
     deliverActivitySince($page, $this->s, $opened)
@@ -95,7 +95,7 @@ test('an approval elsewhere updates the page without holding sign-off', function
     $this->s->approve($this->s->alpha, $this->step);
     $this->actingAs($this->s->alpha->user);
     $page = Livewire::test('pages::contracts.show', ['contract' => $this->s->contract])->assertSee('Draft');
-    $opened = lastActivityId();
+    $opened = lastActivityPosition($this->s);
 
     app(ApproveStep::class)->handle($this->s->beta, $this->step, 1);
     deliverActivitySince($page, $this->s, $opened)
@@ -111,7 +111,7 @@ test('an editor sees the conflict as soon as someone else saves the step', funct
     $this->actingAs($this->s->alpha->user);
     $page = Livewire::test('pages::steps.show', ['contract' => $this->s->contract, 'step' => $this->step])
         ->call('edit')->set('description', 'My draft.');
-    $opened = lastActivityId();
+    $opened = lastActivityPosition($this->s);
 
     app(ReviseStep::class)->handle($otherEditor, $this->step, 1, 'Build the API', 'Their change.');
     deliverActivitySince($page, $this->s, $opened)

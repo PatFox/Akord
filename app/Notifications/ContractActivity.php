@@ -44,7 +44,7 @@ class ContractActivity extends Notification implements ShouldQueue
     }
 
     /**
-     * @return array{activity_id: int, contract_id: int|null, contract: string, type: string, message: string, detail: string|null, url: string}
+     * @return array{activity_id: string, contract_id: string|null, contract: string, type: string, message: string, detail: string|null, url: string}
      */
     public function toArray(User $notifiable): array
     {

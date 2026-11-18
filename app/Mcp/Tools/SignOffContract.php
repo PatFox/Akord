@@ -18,9 +18,9 @@ class SignOffContract extends AgentTool
     public function handle(Request $request): Response
     {
         return $this->run($request, function (AgentApi $api, Actor $actor) use ($request) {
-            $v = $request->validate(['contract_id' => 'required|integer', 'fingerprint' => 'required|string|size:64']);
+            $v = $request->validate(['contract_id' => 'required|string', 'fingerprint' => 'required|string|size:64']);
 
-            return $api->signOff($actor, (int) $v['contract_id'], $v['fingerprint']);
+            return $api->signOff($actor, $v['contract_id'], $v['fingerprint']);
         });
     }
 
@@ -30,7 +30,7 @@ class SignOffContract extends AgentTool
     public function schema(JsonSchema $schema): array
     {
         return [
-            'contract_id' => $schema->integer()->required(),
+            'contract_id' => $schema->string()->required(),
             'fingerprint' => $schema->string()->description('The fingerprint you reviewed (from get_contract_status).')->required(),
         ];
     }

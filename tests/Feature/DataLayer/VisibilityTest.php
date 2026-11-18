@@ -60,12 +60,12 @@ function visibleProjectIds(User|Party $actor): array
 }
 
 test('an organisation owner sees every contract in their organisation and nothing in others', function () {
-    expect(visibleContractIds($this->ownerA))->toBe([$this->c1->id, $this->c2->id, $this->c3->id])
+    expect(visibleContractIds($this->ownerA))->toEqualCanonicalizing([$this->c1->id, $this->c2->id, $this->c3->id])
         ->and(visibleContractIds($this->ownerB))->toBe([$this->cB->id]);
 });
 
 test('a non-owner sees only contracts attached to a party they belong to, across organisations', function () {
-    expect(visibleContractIds($this->alice))->toBe([$this->c1->id, $this->cB->id])
+    expect(visibleContractIds($this->alice))->toEqualCanonicalizing([$this->c1->id, $this->cB->id])
         ->and(visibleContractIds($this->carol))->toBe([$this->cB->id]);
 });
 
@@ -79,11 +79,11 @@ test('an agent sees only the contracts it is attached to', function () {
 
 test('owners see every project in their organisation, including empty ones', function () {
     expect(visibleProjectIds($this->ownerA))
-        ->toBe([$this->projectA1->id, $this->projectA2->id, $this->projectA3->id]);
+        ->toEqualCanonicalizing([$this->projectA1->id, $this->projectA2->id, $this->projectA3->id]);
 });
 
 test('non-owners see only projects that hold a contract visible to them', function () {
-    expect(visibleProjectIds($this->alice))->toBe([$this->projectA1->id, $this->projectB->id])
+    expect(visibleProjectIds($this->alice))->toEqualCanonicalizing([$this->projectA1->id, $this->projectB->id])
         ->and(visibleProjectIds($this->agent))->toBe([$this->projectA1->id])
         ->and(visibleProjectIds($this->bob))->toBe([]);
 });

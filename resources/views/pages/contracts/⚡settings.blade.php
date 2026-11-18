@@ -28,10 +28,10 @@ new class extends Component {
 
     public Contract $contract;
 
-    /** @var array<int|string, string> party id => role, bound to the role selects */
+    /** @var array<string, string> party id => role, bound to the role selects */
     public array $roles = [];
 
-    public ?int $attachPartyId = null;
+    public ?string $attachPartyId = null;
 
     public string $attachRole = 'commenter';
 
@@ -39,7 +39,7 @@ new class extends Component {
 
     public string $inviteEmail = '';
 
-    public ?int $invitePartyId = null;
+    public ?string $invitePartyId = null;
 
     public function mount(Contract $contract): void
     {
@@ -93,14 +93,14 @@ new class extends Component {
     #[Computed]
     public function invitations(): Collection
     {
-        return Invitation::query()->where('contract_id', $this->contract->id)->with(['party', 'inviter'])->latest('id')->get();
+        return Invitation::query()->where('contract_id', $this->contract->id)->with(['party', 'inviter'])->latest()->latest('id')->get();
     }
 
     public function invite(): void
     {
         $this->validate([
             'inviteEmail' => ['required', 'email', 'max:255'],
-            'invitePartyId' => ['required', 'integer'],
+            'invitePartyId' => ['required', 'string'],
         ]);
 
         $party = Party::query()->findOrFail($this->invitePartyId);
@@ -113,7 +113,7 @@ new class extends Component {
         $this->syncForm();
     }
 
-    public function resend(int $invitationId): void
+    public function resend(string $invitationId): void
     {
         $invitation = Invitation::query()->where('contract_id', $this->contract->id)->findOrFail($invitationId);
 
@@ -123,7 +123,7 @@ new class extends Component {
         $this->syncForm();
     }
 
-    public function cancelInvitation(int $invitationId): void
+    public function cancelInvitation(string $invitationId): void
     {
         $invitation = Invitation::query()->where('contract_id', $this->contract->id)->findOrFail($invitationId);
         $this->attempt(fn () => app(CancelInvitation::class)->handle($this->actor(), $invitation), __('Invitation cancelled.'));
@@ -192,10 +192,10 @@ new class extends Component {
         return $versions;
     }
 
-    public function updatedRoles(mixed $value, int|string $partyId): void
+    public function updatedRoles(mixed $value, string $partyId): void
     {
         $role = ContractRole::tryFrom((string) $value);
-        $party = Party::query()->find((int) $partyId);
+        $party = Party::query()->find($partyId);
 
         if ($role !== null && $party !== null) {
             $this->attempt(fn () => app(AttachParty::class)->handle($this->actor(), $this->contract, $party, $role), __('Role updated.'));
@@ -204,14 +204,14 @@ new class extends Component {
         $this->syncForm();
     }
 
-    public function setRequired(int $partyId, bool $required): void
+    public function setRequired(string $partyId, bool $required): void
     {
         $party = Party::query()->findOrFail($partyId);
         $this->attempt(fn () => app(SetRequiredApprover::class)->handle($this->actor(), $this->contract, $party, $required));
         $this->syncForm();
     }
 
-    public function detach(int $partyId): void
+    public function detach(string $partyId): void
     {
         $party = Party::query()->findOrFail($partyId);
         $this->attempt(fn () => app(DetachParty::class)->handle($this->actor(), $this->contract, $party), __('Party detached.'));
@@ -221,7 +221,7 @@ new class extends Component {
     public function attach(): void
     {
         $this->validate([
-            'attachPartyId' => ['required', 'integer'],
+            'attachPartyId' => ['required', 'string'],
             'attachRole' => ['required', Rule::enum(ContractRole::class)],
         ]);
 
@@ -288,13 +288,13 @@ new class extends Component {
                         </flux:table.cell>
                         <flux:table.cell>
                             <flux:button size="xs" :variant="$membership->is_required_approver ? 'primary' : 'ghost'" :icon="$membership->is_required_approver ? 'check' : null"
-                                         wire:click="setRequired({{ $membership->party_id }}, {{ $membership->is_required_approver ? 'false' : 'true' }})"
+                                         wire:click="setRequired('{{ $membership->party_id }}', {{ $membership->is_required_approver ? 'false' : 'true' }})"
                                          :disabled="$contract->isAgreed()">
                                 {{ $membership->is_required_approver ? __('Required') : __('Not required') }}
                             </flux:button>
                         </flux:table.cell>
                         <flux:table.cell align="end">
-                            <flux:button size="xs" variant="ghost" icon="x-mark" wire:click="detach({{ $membership->party_id }})" :disabled="$contract->isAgreed()">{{ __('Detach') }}</flux:button>
+                            <flux:button size="xs" variant="ghost" icon="x-mark" wire:click="detach('{{ $membership->party_id }}')" :disabled="$contract->isAgreed()">{{ __('Detach') }}</flux:button>
                         </flux:table.cell>
                     </flux:table.row>
                 @empty
@@ -379,10 +379,10 @@ new class extends Component {
                             </flux:table.cell>
                             <flux:table.cell align="end">
                                 @if (in_array($status, ['pending', 'expired'], true))
-                                    <flux:button size="xs" variant="ghost" icon="arrow-path" wire:click="resend({{ $invitation->id }})">{{ __('Resend') }}</flux:button>
+                                    <flux:button size="xs" variant="ghost" icon="arrow-path" wire:click="resend('{{ $invitation->id }}')">{{ __('Resend') }}</flux:button>
                                 @endif
                                 @if ($status === 'pending')
-                                    <flux:button size="xs" variant="ghost" icon="x-mark" wire:click="cancelInvitation({{ $invitation->id }})">{{ __('Cancel') }}</flux:button>
+                                    <flux:button size="xs" variant="ghost" icon="x-mark" wire:click="cancelInvitation('{{ $invitation->id }}')">{{ __('Cancel') }}</flux:button>
                                 @endif
                             </flux:table.cell>
                         </flux:table.row>

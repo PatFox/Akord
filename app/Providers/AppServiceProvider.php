@@ -19,9 +19,13 @@ use App\Models\Step;
 use App\Models\StepRevision;
 use App\Models\User;
 use App\Support\Agents\AgentActor;
+use App\Support\RandomId;
 use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Relations\Relation;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Database\Schema\ColumnDefinition;
+use Illuminate\Database\Schema\ForeignIdColumnDefinition;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
@@ -48,8 +52,41 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->configureDefaults();
+        $this->configureSchema();
         $this->configureRateLimits();
         $this->configureOAuth();
+    }
+
+    /**
+     * Column helpers for RandomId keys, used by the migrations:
+     * randomId() for a primary key, foreignRandomId() for a foreign key, and
+     * randomIdMorphs() for a polymorphic relation to one of Akord's models.
+     */
+    protected function configureSchema(): void
+    {
+        Blueprint::macro('randomId', function (string $column = 'id'): ColumnDefinition {
+            /** @var Blueprint $this */
+            return $this->char($column, RandomId::LENGTH)->primary();
+        });
+
+        Blueprint::macro('foreignRandomId', function (string $column): ForeignIdColumnDefinition {
+            /** @var Blueprint $this */
+            $definition = new ForeignIdColumnDefinition($this, [
+                'type' => 'char',
+                'name' => $column,
+                'length' => RandomId::LENGTH,
+            ]);
+            $this->addColumnDefinition($definition);
+
+            return $definition;
+        });
+
+        Blueprint::macro('randomIdMorphs', function (string $name, bool $nullable = false): void {
+            /** @var Blueprint $this */
+            $this->string("{$name}_type")->nullable($nullable);
+            $this->char("{$name}_id", RandomId::LENGTH)->nullable($nullable);
+            $this->index(["{$name}_type", "{$name}_id"]);
+        });
     }
 
     /**

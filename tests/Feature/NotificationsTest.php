@@ -48,7 +48,7 @@ test('a comment notifies the other people on the contract, not the author, unatt
 
     app(AddComment::class)->handle($this->s->beta, $step, CommentKind::Question, 'Which endpoints?');
 
-    expect(notifiedFor('comment.added'))->toBe([$this->s->alpha->user->id, $this->gamma->user->id]);
+    expect(notifiedFor('comment.added'))->toEqualCanonicalizing([$this->s->alpha->user->id, $this->gamma->user->id]);
     Notification::assertSentTo($this->s->alpha->user, ContractActivity::class, fn (ContractActivity $n, array $channels) => $channels === ['database', 'mail']
         && $n->toArray($this->s->alpha->user)['url'] === route('steps.show', [$this->s->contract, $step]));
 });
@@ -65,7 +65,7 @@ test('a content edit tells the parties whose approval it cancelled; a spacing-on
 
     expect(notifiedFor('step.revised', approvalCancelled: true))->toBe([$this->s->beta->user->id])
         ->and(notifiedFor('step.revised', approvalCancelled: false))->toBe([$this->gamma->user->id])
-        ->and(ActivityEvent::query()->where('type', 'step.revised')->latest('id')->first()->payload['cancelled_party_ids'])->toBe([$this->s->beta->party->id]);
+        ->and(ActivityEvent::query()->where('type', 'step.revised')->orderByDesc('position')->first()->payload['cancelled_party_ids'])->toBe([$this->s->beta->party->id]);
 
     Notification::assertSentTo($this->s->beta->user, ContractActivity::class, fn (ContractActivity $n) => str_contains((string) $n->toArray($this->s->beta->user)['detail'], 'approval of this step was cancelled'));
 });
@@ -82,7 +82,7 @@ test('ready for sign-off goes to required parties only; agreement goes to everyo
     app(SignOffContract::class)->handle($this->s->alpha, $this->s->contract, $fingerprint);
     app(SignOffContract::class)->handle($this->s->beta, $this->s->contract, $fingerprint);
 
-    expect(notifiedFor('contract.agreed'))->toBe([$this->s->alpha->user->id, $this->gamma->user->id]);
+    expect(notifiedFor('contract.agreed'))->toEqualCanonicalizing([$this->s->alpha->user->id, $this->gamma->user->id]);
 });
 
 test('a change that cancels sign-offs tells the parties that had signed off', function () {
@@ -121,7 +121,7 @@ test('people without a verified email are told in the app only, and nobody who l
     $comment();
     Notification::assertSentTo($this->gamma->user, ContractActivity::class, fn ($n, array $channels) => $channels === ['database']);
 
-    $activity = ActivityEvent::query()->where('type', 'comment.added')->latest('id')->firstOrFail();
+    $activity = ActivityEvent::query()->where('type', 'comment.added')->orderByDesc('position')->firstOrFail();
     $this->gamma->party->users()->detach($this->gamma->user);
 
     expect((new ContractActivity($activity))->shouldSend($this->gamma->user, 'database'))->toBeFalse()

@@ -9,6 +9,7 @@ use App\Models\Party;
 use App\Support\ActingParties;
 use App\Support\Actor;
 use App\Support\ContractAccess;
+use App\Support\RandomId;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
@@ -23,7 +24,7 @@ use Livewire\Attributes\Computed;
  */
 trait ActsOnContract
 {
-    public ?int $actingPartyId = null;
+    public ?string $actingPartyId = null;
 
     public function hydrateActsOnContract(): void
     {
@@ -38,7 +39,7 @@ trait ActsOnContract
 
     public function updatedActingPartyId(mixed $value): void
     {
-        if (! is_numeric($value) || ! ActingParties::choose(Auth::user(), $this->contract, (int) $value)) {
+        if (! RandomId::isValid($value) || ! ActingParties::choose(Auth::user(), $this->contract, $value)) {
             $this->refused(__('You cannot act for that party on this contract.'), 403);
         }
 

@@ -19,11 +19,11 @@ class AddComment extends AgentTool
     {
         return $this->run($request, function (AgentApi $api, Actor $actor) use ($request) {
             $v = $request->validate([
-                'contract_id' => 'required|integer', 'step_id' => 'required|integer',
-                'kind' => 'required|in:question,suggestion,general', 'body_md' => 'required|string|max:10000', 'parent_id' => 'nullable|integer',
+                'contract_id' => 'required|string', 'step_id' => 'required|string',
+                'kind' => 'required|in:question,suggestion,general', 'body_md' => 'required|string|max:10000', 'parent_id' => 'nullable|string',
             ]);
 
-            return $api->addComment($actor, (int) $v['contract_id'], (int) $v['step_id'], $v['kind'], $v['body_md'], isset($v['parent_id']) ? (int) $v['parent_id'] : null);
+            return $api->addComment($actor, $v['contract_id'], $v['step_id'], $v['kind'], $v['body_md'], $v['parent_id'] ?? null);
         });
     }
 
@@ -33,11 +33,11 @@ class AddComment extends AgentTool
     public function schema(JsonSchema $schema): array
     {
         return [
-            'contract_id' => $schema->integer()->required(),
-            'step_id' => $schema->integer()->required(),
+            'contract_id' => $schema->string()->required(),
+            'step_id' => $schema->string()->required(),
             'kind' => $schema->string()->enum(['question', 'suggestion', 'general'])->required(),
             'body_md' => $schema->string()->description('The comment (Markdown).')->required(),
-            'parent_id' => $schema->integer()->description('Reply to this comment.'),
+            'parent_id' => $schema->string()->description('Reply to this comment.'),
         ];
     }
 }

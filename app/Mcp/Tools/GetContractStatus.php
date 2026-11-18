@@ -20,9 +20,9 @@ class GetContractStatus extends AgentTool
     public function handle(Request $request): Response
     {
         return $this->run($request, function (AgentApi $api, Actor $actor) use ($request) {
-            $v = $request->validate(['contract_id' => 'required|integer']);
+            $v = $request->validate(['contract_id' => 'required|string']);
 
-            return $api->status($actor, (int) $v['contract_id']);
+            return $api->status($actor, $v['contract_id']);
         });
     }
 
@@ -32,7 +32,7 @@ class GetContractStatus extends AgentTool
     public function schema(JsonSchema $schema): array
     {
         return [
-            'contract_id' => $schema->integer()->required(),
+            'contract_id' => $schema->string()->required(),
         ];
     }
 }

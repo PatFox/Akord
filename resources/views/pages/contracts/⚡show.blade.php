@@ -20,6 +20,7 @@ use App\Models\Phase;
 use App\Models\Step;
 use App\Support\ActivityDescription;
 use App\Support\ContractAccess;
+use App\Support\RandomId;
 use App\Support\ReadinessReport;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
@@ -38,18 +39,18 @@ new class extends Component {
     /** Someone else changed the agreed content while this page was open. */
     public bool $changedSinceReview = false;
 
-    /** @var list<int> activity ids received since the review went stale */
+    /** @var list<string> activity ids received since the review went stale */
     public array $changes = [];
 
     public string $newPhaseTitle = '';
 
-    public ?int $addingStepTo = null;
+    public ?string $addingStepTo = null;
 
     public string $newStepTitle = '';
 
     public string $newStepDescription = '';
 
-    public ?int $renamingPhase = null;
+    public ?string $renamingPhase = null;
 
     public string $phaseTitle = '';
 
@@ -155,8 +156,8 @@ new class extends Component {
             $this->changedSinceReview = true;
         }
 
-        if ($this->changedSinceReview && is_numeric($event['id'] ?? null)) {
-            $this->changes = array_slice(array_values(array_unique([...$this->changes, (int) $event['id']])), -20);
+        if ($this->changedSinceReview && RandomId::isValid($event['id'] ?? null)) {
+            $this->changes = array_slice(array_values(array_unique([...$this->changes, $event['id']])), -20);
         }
     }
 
@@ -176,7 +177,7 @@ new class extends Component {
             ->where('contract_id', $this->contract->id)
             ->whereIn('id', $this->changes)
             ->with(['actorUser', 'actorParty', 'subject'])
-            ->orderBy('id')
+            ->orderBy('position')
             ->get()
             ->map(fn (ActivityEvent $event) => ActivityDescription::for($event))
             ->all();
@@ -210,7 +211,7 @@ new class extends Component {
         }
     }
 
-    public function startRenaming(int $phaseId): void
+    public function startRenaming(string $phaseId): void
     {
         $this->renamingPhase = $phaseId;
         $this->phaseTitle = $this->contract->findPhase($phaseId)->title;
@@ -228,7 +229,7 @@ new class extends Component {
         $this->reset('renamingPhase', 'phaseTitle');
     }
 
-    public function movePhase(int $phaseId, int $offset): void
+    public function movePhase(string $phaseId, int $offset): void
     {
         $ids = $this->contract->phases()->pluck('id')->all();
         $from = array_search($phaseId, $ids, true);
@@ -242,7 +243,7 @@ new class extends Component {
         $this->attempt(fn () => app(ReorderPhases::class)->handle($this->actor(), $this->contract, $ids));
     }
 
-    public function startAddingStep(int $phaseId): void
+    public function startAddingStep(string $phaseId): void
     {
         $this->addingStepTo = $phaseId;
         $this->reset('newStepTitle', 'newStepDescription');
@@ -270,10 +271,10 @@ new class extends Component {
     /**
      * Drag and drop: $position is 0-based within the target phase's active steps.
      */
-    public function sortStep(int|string $stepId, int $position, int|string $phaseId): void
+    public function sortStep(string $stepId, int $position, string $phaseId): void
     {
-        $step = $this->contract->findStep((int) $stepId);
-        $target = $this->contract->findPhase((int) $phaseId);
+        $step = $this->contract->findStep($stepId);
+        $target = $this->contract->findPhase($phaseId);
 
         if ($step->phase_id !== $target->id) {
             $this->attempt(fn () => app(MoveStep::class)->handle($this->actor(), $step, $target, $position + 1));
@@ -420,9 +421,9 @@ new class extends Component {
                         <flux:heading size="lg" level="2">{{ $phase->title }}</flux:heading>
                         @if ($this->canEdit)
                             <div class="flex items-center gap-1">
-                                <flux:button size="xs" variant="ghost" icon="chevron-up" wire:click="movePhase({{ $phase->id }}, -1)" :disabled="$loop->first" :tooltip="__('Move up')" />
-                                <flux:button size="xs" variant="ghost" icon="chevron-down" wire:click="movePhase({{ $phase->id }}, 1)" :disabled="$loop->last" :tooltip="__('Move down')" />
-                                <flux:button size="xs" variant="ghost" icon="pencil" wire:click="startRenaming({{ $phase->id }})" :tooltip="__('Rename')" />
+                                <flux:button size="xs" variant="ghost" icon="chevron-up" wire:click="movePhase('{{ $phase->id }}', -1)" :disabled="$loop->first" :tooltip="__('Move up')" />
+                                <flux:button size="xs" variant="ghost" icon="chevron-down" wire:click="movePhase('{{ $phase->id }}', 1)" :disabled="$loop->last" :tooltip="__('Move down')" />
+                                <flux:button size="xs" variant="ghost" icon="pencil" wire:click="startRenaming('{{ $phase->id }}')" :tooltip="__('Rename')" />
                             </div>
                         @endif
                     @endif
@@ -479,7 +480,7 @@ new class extends Component {
                             </div>
                         </form>
                     @else
-                        <flux:button size="sm" variant="subtle" icon="plus" wire:click="startAddingStep({{ $phase->id }})">{{ __('Add step') }}</flux:button>
+                        <flux:button size="sm" variant="subtle" icon="plus" wire:click="startAddingStep('{{ $phase->id }}')">{{ __('Add step') }}</flux:button>
                     @endif
                 @endif
             </flux:card>

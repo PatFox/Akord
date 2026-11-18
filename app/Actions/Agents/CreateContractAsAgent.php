@@ -25,7 +25,7 @@ final class CreateContractAsAgent
 {
     public const ABILITY = 'create';
 
-    public function handle(Actor $actor, int $projectId, string $title): Contract
+    public function handle(Actor $actor, string $projectId, string $title): Contract
     {
         if (! $actor->isAgent() || $actor->party === null) {
             throw new InvalidArgumentException('Only agents use this; people create contracts with CreateContract.');

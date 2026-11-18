@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\HasRandomId;
 use Database\Factories\ActivityEventFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Scope;
@@ -16,23 +17,24 @@ use Illuminate\Support\Carbon;
  * Timeline entry. `seq` (assigned after commit by ActivitySequencer) is the cursor
  * for activity?since=; never page by `id`, which can commit out of order.
  *
- * @property int $id
- * @property int $organisation_id
- * @property int|null $contract_id
- * @property int|null $actor_party_id
- * @property int|null $actor_user_id
+ * @property string $id
+ * @property string $organisation_id
+ * @property string|null $contract_id
+ * @property int $position Order within the contract (1, 2, 3...), set by ActivityLog.
+ * @property string|null $actor_party_id
+ * @property string|null $actor_user_id
  * @property string $type
  * @property string|null $subject_type
- * @property int|null $subject_id
+ * @property string|null $subject_id
  * @property array<string, mixed>|null $payload
  * @property int|null $seq
  * @property Carbon $created_at
  */
-#[Fillable(['organisation_id', 'contract_id', 'actor_party_id', 'actor_user_id', 'type', 'subject_type', 'subject_id', 'payload'])]
+#[Fillable(['organisation_id', 'contract_id', 'position', 'actor_party_id', 'actor_user_id', 'type', 'subject_type', 'subject_id', 'payload'])]
 class ActivityEvent extends Model
 {
     /** @use HasFactory<ActivityEventFactory> */
-    use HasFactory;
+    use HasFactory, HasRandomId;
 
     public const UPDATED_AT = null;
 

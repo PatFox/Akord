@@ -29,15 +29,15 @@ final class ContractReadiness
 
     public static function report(Contract $contract): ReadinessReport
     {
+        /** @var list<string> $requiredPartyIds */
         $requiredPartyIds = DB::table('contract_party')
             ->where('contract_id', $contract->getKey())
             ->where('is_required_approver', true)
             ->orderBy('party_id')
             ->pluck('party_id')
-            ->map(intval(...))
             ->all();
 
-        /** @var array<int, string> $hashByStep */
+        /** @var array<string, string> $hashByStep step id => current content hash */
         $hashByStep = DB::table('steps')
             ->join('phases', 'phases.id', '=', 'steps.phase_id')
             ->join('step_revisions as current', 'current.id', '=', 'steps.current_revision_id')
@@ -60,22 +60,23 @@ final class ContractReadiness
                 ->select('approvals.step_id', 'approvals.party_id')
                 ->get()
                 ->each(function (object $row) use (&$approved): void {
-                    /** @var object{step_id: int|string, party_id: int|string} $row */
-                    $approved[(int) $row->step_id.':'.(int) $row->party_id] = true;
+                    /** @var object{step_id: string, party_id: string} $row */
+                    $approved[$row->step_id.':'.$row->party_id] = true;
                 });
         }
 
         $outstanding = [];
         foreach (array_keys($hashByStep) as $stepId) {
             foreach ($requiredPartyIds as $partyId) {
-                if (! isset($approved[(int) $stepId.':'.$partyId])) {
-                    $outstanding[] = ['step_id' => (int) $stepId, 'party_id' => $partyId];
+                if (! isset($approved[$stepId.':'.$partyId])) {
+                    $outstanding[] = ['step_id' => $stepId, 'party_id' => $partyId];
                 }
             }
         }
 
         $fingerprint = ContractFingerprint::compute($hashByStep, $requiredPartyIds);
 
+        /** @var list<string> $signedOff */
         $signedOff = $requiredPartyIds === [] ? [] : DB::table('contract_signoffs')
             ->where('contract_id', $contract->getKey())
             ->where('fingerprint', $fingerprint)
@@ -83,7 +84,6 @@ final class ContractReadiness
             ->whereIn('party_id', $requiredPartyIds)
             ->orderBy('party_id')
             ->pluck('party_id')
-            ->map(intval(...))
             ->unique()
             ->values()
             ->all();
@@ -94,6 +94,6 @@ final class ContractReadiness
             default => ContractState::Draft,
         };
 
-        return new ReadinessReport($state, $fingerprint, count($hashByStep), array_values($requiredPartyIds), $outstanding, array_values($signedOff));
+        return new ReadinessReport($state, $fingerprint, count($hashByStep), $requiredPartyIds, $outstanding, $signedOff);
     }
 }

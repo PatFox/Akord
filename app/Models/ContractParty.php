@@ -10,8 +10,8 @@ use Illuminate\Support\Carbon;
  * A party's role on a contract, inherited by every member of the party.
  *
  * @property int $id
- * @property int $contract_id
- * @property int $party_id
+ * @property string $contract_id
+ * @property string $party_id
  * @property ContractRole $role
  * @property bool $is_required_approver
  * @property Carbon|null $created_at

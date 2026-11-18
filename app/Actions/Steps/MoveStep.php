@@ -27,9 +27,9 @@ final class MoveStep
     }
 
     /**
-     * @param  int|null  $afterStepId  null: end of the phase; 0: start; otherwise directly after that step
+     * @param  string|null  $afterStepId  null: end of the phase; StepOrder::START: start; otherwise directly after that step
      */
-    public function handleAfter(Actor $actor, Step $step, Phase $target, ?int $afterStepId): Step
+    public function handleAfter(Actor $actor, Step $step, Phase $target, ?string $afterStepId): Step
     {
         return $this->move($actor, $step, $target, fn (Phase $target, Step $step): int => StepOrder::positionAfter($target, $afterStepId, $step->id));
     }

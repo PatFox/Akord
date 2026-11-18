@@ -15,7 +15,7 @@ return new class extends Migration
     {
         Schema::table('agent_claim_codes', function (Blueprint $table) {
             $table->json('abilities')->nullable()->after('code_hash');
-            $table->foreignId('created_by')->nullable()->after('abilities')->constrained('users')->nullOnDelete();
+            $table->foreignRandomId('created_by')->nullable()->after('abilities')->constrained('users')->nullOnDelete();
         });
     }
 

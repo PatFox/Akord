@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\PartyType;
+use App\Models\Concerns\HasRandomId;
 use Database\Factories\PartyFactory;
 use Illuminate\Auth\Authenticatable;
 use Illuminate\Contracts\Auth\Authenticatable as AuthenticatableContract;
@@ -16,8 +17,8 @@ use Illuminate\Support\Carbon;
 use Laravel\Sanctum\HasApiTokens;
 
 /**
- * @property int $id
- * @property int $organisation_id
+ * @property string $id
+ * @property string $organisation_id
  * @property string $name
  * @property PartyType $type
  * @property Carbon|null $created_at
@@ -31,7 +32,7 @@ class Party extends Model implements AuthenticatableContract
     use Authenticatable, HasApiTokens;
 
     /** @use HasFactory<PartyFactory> */
-    use HasFactory;
+    use HasFactory, HasRandomId;
 
     /**
      * @return array<string, string>

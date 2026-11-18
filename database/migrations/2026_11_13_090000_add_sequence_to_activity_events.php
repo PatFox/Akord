@@ -10,10 +10,10 @@ return new class extends Migration
     /**
      * Run the migrations.
      *
-     * `seq` is the cursor for activity?since=. Auto-increment ids can commit out of
-     * order under concurrent writers, so events are numbered after commit, in commit
-     * order, by App\Support\ActivitySequencer. The single activity_sequencer row is
-     * both its lock and its counter.
+     * `seq` is the cursor for activity?since=. Events can commit out of order under
+     * concurrent writers, so they are numbered after commit, in commit order, by
+     * App\Support\ActivitySequencer. The single activity_sequencer row is both its
+     * lock and its counter.
      */
     public function up(): void
     {

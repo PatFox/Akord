@@ -18,9 +18,9 @@ class ArchiveStep extends AgentTool
     public function handle(Request $request): Response
     {
         return $this->run($request, function (AgentApi $api, Actor $actor) use ($request) {
-            $v = $request->validate(['contract_id' => 'required|integer', 'step_id' => 'required|integer']);
+            $v = $request->validate(['contract_id' => 'required|string', 'step_id' => 'required|string']);
 
-            return $api->archiveStep($actor, (int) $v['contract_id'], (int) $v['step_id']);
+            return $api->archiveStep($actor, $v['contract_id'], $v['step_id']);
         });
     }
 
@@ -30,8 +30,8 @@ class ArchiveStep extends AgentTool
     public function schema(JsonSchema $schema): array
     {
         return [
-            'contract_id' => $schema->integer()->required(),
-            'step_id' => $schema->integer()->required(),
+            'contract_id' => $schema->string()->required(),
+            'step_id' => $schema->string()->required(),
         ];
     }
 }

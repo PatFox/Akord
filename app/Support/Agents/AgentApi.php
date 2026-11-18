@@ -48,6 +48,7 @@ final class AgentApi
         return array_values(Contract::query()
             ->visibleTo($this->party($actor))
             ->with('project.organisation')
+            ->orderBy('created_at')
             ->orderBy('id')
             ->get()
             ->map(fn (Contract $contract) => AgentPresenter::contractSummary($contract, ContractReadiness::report($contract)))
@@ -57,7 +58,7 @@ final class AgentApi
     /**
      * @return array<string, mixed>
      */
-    public function contract(Actor $actor, int $contractId): array
+    public function contract(Actor $actor, string $contractId): array
     {
         $contract = $this->visibleContract($actor, $contractId);
 
@@ -69,14 +70,14 @@ final class AgentApi
      *
      * @return array<string, mixed>
      */
-    public function createContract(Actor $actor, int $projectId, string $title): array
+    public function createContract(Actor $actor, string $projectId, string $title): array
     {
         $contract = app(CreateContractAsAgent::class)->handle($actor, $projectId, $title);
 
         return $this->contract($actor, $contract->id);
     }
 
-    public function contractMarkdown(Actor $actor, int $contractId): string
+    public function contractMarkdown(Actor $actor, string $contractId): string
     {
         $contract = $this->visibleContract($actor, $contractId);
 
@@ -86,7 +87,7 @@ final class AgentApi
     /**
      * @return array<string, mixed>
      */
-    public function status(Actor $actor, int $contractId): array
+    public function status(Actor $actor, string $contractId): array
     {
         $contract = $this->visibleContract($actor, $contractId);
 
@@ -96,7 +97,7 @@ final class AgentApi
     /**
      * @return array<string, mixed>
      */
-    public function step(Actor $actor, int $contractId, int $stepId): array
+    public function step(Actor $actor, string $contractId, string $stepId): array
     {
         $contract = $this->visibleContract($actor, $contractId);
         $step = $contract->findStep($stepId);
@@ -107,7 +108,7 @@ final class AgentApi
     /**
      * @return array<string, mixed>
      */
-    public function stepHistory(Actor $actor, int $contractId, int $stepId): array
+    public function stepHistory(Actor $actor, string $contractId, string $stepId): array
     {
         $step = $this->visibleContract($actor, $contractId)->findStep($stepId);
         $revisions = $step->revisions()->with(['authorParty', 'authorUser'])->get();
@@ -122,7 +123,7 @@ final class AgentApi
     /**
      * @return array<string, mixed>
      */
-    public function diff(Actor $actor, int $contractId, int $stepId, int $from, int $to): array
+    public function diff(Actor $actor, string $contractId, string $stepId, int $from, int $to): array
     {
         $step = $this->visibleContract($actor, $contractId)->findStep($stepId);
         $old = $step->revisions()->where('number', $from)->first() ?? throw new InvalidActionException("This step has no revision {$from}.");
@@ -158,7 +159,7 @@ final class AgentApi
     /**
      * @return array<string, mixed>
      */
-    public function reviseStep(Actor $actor, int $contractId, int $stepId, int $baseRevision, string $title, string $descriptionMd, ?string $changeNote): array
+    public function reviseStep(Actor $actor, string $contractId, string $stepId, int $baseRevision, string $title, string $descriptionMd, ?string $changeNote): array
     {
         $step = $this->visibleContract($actor, $contractId)->findStep($stepId);
         $revision = app(ReviseStep::class)->handle($actor, $step, $baseRevision, $title, $descriptionMd, $changeNote);
@@ -169,7 +170,7 @@ final class AgentApi
     /**
      * @return array<string, mixed>
      */
-    public function createStep(Actor $actor, int $contractId, int $phaseId, string $title, string $descriptionMd, ?string $changeNote, ?int $afterStepId): array
+    public function createStep(Actor $actor, string $contractId, string $phaseId, string $title, string $descriptionMd, ?string $changeNote, ?string $afterStepId): array
     {
         $phase = $this->visibleContract($actor, $contractId)->findPhase($phaseId);
         $step = app(CreateStep::class)->handle($actor, $phase, $title, $descriptionMd, $changeNote, $afterStepId);
@@ -178,10 +179,10 @@ final class AgentApi
     }
 
     /**
-     * @param  int|null  $phaseId  the target phase; null keeps the step in its phase
+     * @param  string|null  $phaseId  the target phase; null keeps the step in its phase
      * @return array<string, mixed>
      */
-    public function moveStep(Actor $actor, int $contractId, int $stepId, ?int $phaseId, ?int $afterStepId): array
+    public function moveStep(Actor $actor, string $contractId, string $stepId, ?string $phaseId, ?string $afterStepId): array
     {
         $contract = $this->visibleContract($actor, $contractId);
         $step = $contract->findStep($stepId);
@@ -194,7 +195,7 @@ final class AgentApi
     /**
      * @return array<string, mixed>
      */
-    public function archiveStep(Actor $actor, int $contractId, int $stepId): array
+    public function archiveStep(Actor $actor, string $contractId, string $stepId): array
     {
         $step = $this->visibleContract($actor, $contractId)->findStep($stepId);
         $archived = app(ArchiveStep::class)->handle($actor, $step);
@@ -205,7 +206,7 @@ final class AgentApi
     /**
      * @return array<string, mixed>
      */
-    public function createPhase(Actor $actor, int $contractId, string $title): array
+    public function createPhase(Actor $actor, string $contractId, string $title): array
     {
         $phase = app(CreatePhase::class)->handle($actor, $this->visibleContract($actor, $contractId), $title);
 
@@ -215,7 +216,7 @@ final class AgentApi
     /**
      * @return array<string, mixed>
      */
-    public function addComment(Actor $actor, int $contractId, int $stepId, string $kind, string $bodyMd, ?int $parentId): array
+    public function addComment(Actor $actor, string $contractId, string $stepId, string $kind, string $bodyMd, ?string $parentId): array
     {
         $step = $this->visibleContract($actor, $contractId)->findStep($stepId);
         $kindEnum = CommentKind::tryFrom($kind) ?? throw new InvalidActionException('Comment kind must be question, suggestion or general.');
@@ -229,7 +230,7 @@ final class AgentApi
     /**
      * @return array<string, mixed>
      */
-    public function approveStep(Actor $actor, int $contractId, int $stepId, int $reviewedRevision): array
+    public function approveStep(Actor $actor, string $contractId, string $stepId, int $reviewedRevision): array
     {
         $step = $this->visibleContract($actor, $contractId)->findStep($stepId);
         $approval = app(ApproveStep::class)->handle($actor, $step, $reviewedRevision);
@@ -240,7 +241,7 @@ final class AgentApi
     /**
      * @return array<string, mixed>
      */
-    public function withdrawApproval(Actor $actor, int $contractId, int $stepId): array
+    public function withdrawApproval(Actor $actor, string $contractId, string $stepId): array
     {
         $step = $this->visibleContract($actor, $contractId)->findStep($stepId);
 
@@ -250,7 +251,7 @@ final class AgentApi
     /**
      * @return array<string, mixed>
      */
-    public function signOff(Actor $actor, int $contractId, string $fingerprint): array
+    public function signOff(Actor $actor, string $contractId, string $fingerprint): array
     {
         $contract = $this->visibleContract($actor, $contractId);
         $signoff = app(SignOffContract::class)->handle($actor, $contract, $fingerprint);
@@ -262,14 +263,14 @@ final class AgentApi
     /**
      * @return array<string, mixed>
      */
-    public function withdrawSignOff(Actor $actor, int $contractId): array
+    public function withdrawSignOff(Actor $actor, string $contractId): array
     {
         $contract = $this->visibleContract($actor, $contractId);
 
         return ['contract_id' => $contract->id, 'withdrawn' => app(WithdrawSignOff::class)->handle($actor, $contract)];
     }
 
-    private function visibleContract(Actor $actor, int $contractId): Contract
+    private function visibleContract(Actor $actor, string $contractId): Contract
     {
         $contract = Contract::query()->find($contractId)
             ?? throw (new ModelNotFoundException)->setModel(Contract::class, [$contractId]);

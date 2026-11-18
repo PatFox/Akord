@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Casts\NormalisedEmail;
 use App\Enums\OrganisationRole;
+use App\Models\Concerns\HasRandomId;
 use Database\Factories\UserFactory;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -21,7 +22,7 @@ use Laravel\Passport\Contracts\OAuthenticatable;
 use Laravel\Passport\HasApiTokens;
 
 /**
- * @property int $id
+ * @property string $id
  * @property string $name
  * @property string $email
  * @property Carbon|null $email_verified_at
@@ -42,7 +43,7 @@ class User extends Authenticatable implements MustVerifyEmail, OAuthenticatable,
     use HasApiTokens;
 
     /** @use HasFactory<UserFactory> */
-    use HasFactory, Notifiable, PasskeyAuthenticatable, TwoFactorAuthenticatable;
+    use HasFactory, HasRandomId, Notifiable, PasskeyAuthenticatable, TwoFactorAuthenticatable;
 
     /**
      * Get the attributes that should be cast.
@@ -88,7 +89,7 @@ class User extends Authenticatable implements MustVerifyEmail, OAuthenticatable,
         return $this->belongsToMany(Party::class)->withTimestamps();
     }
 
-    public function isOwnerOf(int $organisationId): bool
+    public function isOwnerOf(string $organisationId): bool
     {
         return $this->organisations()
             ->whereKey($organisationId)

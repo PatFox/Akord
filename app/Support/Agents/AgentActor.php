@@ -6,6 +6,7 @@ use App\Models\AgentConnection;
 use App\Models\Party;
 use App\Models\User;
 use App\Support\Actor;
+use App\Support\RandomId;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Laravel\Mcp\Server\Registrar;
@@ -25,11 +26,11 @@ use Laravel\Sanctum\PersonalAccessToken;
 final class AgentActor
 {
     /**
-     * @param  int|null  $urlPartyId  the party named by the URL, if any
+     * @param  string|null  $urlPartyId  the party named by the URL, if any
      *
      * @throws AuthorizationException when the caller is not an agent credential, or not one for the URL's party
      */
-    public static function from(?Authenticatable $user, ?int $urlPartyId = null): Actor
+    public static function from(?Authenticatable $user, ?string $urlPartyId = null): Actor
     {
         if ($user instanceof Party && $user->isAgent()) {
             if ($urlPartyId !== null && $user->id !== $urlPartyId) {
@@ -53,11 +54,11 @@ final class AgentActor
     /**
      * The agent party named by the current route (/mcp/agents/{party}), if any.
      */
-    public static function urlPartyId(): ?int
+    public static function urlPartyId(): ?string
     {
         $party = request()->route('party');
 
-        return is_string($party) && ctype_digit($party) ? (int) $party : null;
+        return RandomId::isValid($party) ? $party : null;
     }
 
     /**
@@ -75,20 +76,22 @@ final class AgentActor
     /**
      * @param  AccessToken<mixed>  $token
      */
-    private static function fromConnection(User $user, AccessToken $token, ?int $urlPartyId): Actor
+    private static function fromConnection(User $user, AccessToken $token, ?string $urlPartyId): Actor
     {
         if (! $token->can(Registrar::OAUTH_SCOPE)) {
             throw new AuthorizationException('This token was not issued for the MCP server.');
         }
 
         // At a party's URL, only a connection approved for that party; elsewhere, the latest one.
+        // Approving again creates a new connection (ConnectAgentController), so latest = newest row.
         $connection = AgentConnection::query()
             ->active()
             ->with('party')
             ->where('oauth_client_id', $token->oauth_client_id)
             ->where('approved_by', $user->getKey())
             ->when($urlPartyId !== null, fn ($query) => $query->where('party_id', $urlPartyId))
-            ->latest('id')
+            ->latest('created_at')
+            ->orderByDesc('id')
             ->first();
 
         $party = $connection?->party;

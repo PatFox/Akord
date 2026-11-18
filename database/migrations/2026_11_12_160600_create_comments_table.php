@@ -1,5 +1,6 @@
 <?php
 
+use App\Support\RandomId;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -12,12 +13,12 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('comments', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('step_id')->constrained();
-            $table->unsignedBigInteger('step_revision_id');
-            $table->unsignedBigInteger('parent_id')->nullable();
-            $table->foreignId('author_party_id')->constrained('parties');
-            $table->foreignId('author_user_id')->nullable()->constrained('users')->nullOnDelete();
+            $table->randomId();
+            $table->foreignRandomId('step_id')->constrained();
+            $table->char('step_revision_id', RandomId::LENGTH);
+            $table->char('parent_id', RandomId::LENGTH)->nullable();
+            $table->foreignRandomId('author_party_id')->constrained('parties');
+            $table->foreignRandomId('author_user_id')->nullable()->constrained('users')->nullOnDelete();
             $table->string('kind', 20);
             $table->text('body_md');
             $table->timestamp('resolved_at')->nullable();

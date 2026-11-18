@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\OrganisationRole;
+use App\Models\Concerns\HasRandomId;
 use Database\Factories\ContractFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Scope;
@@ -17,11 +18,11 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Carbon;
 
 /**
- * @property int $id
- * @property int $project_id
+ * @property string $id
+ * @property string $project_id
  * @property string $title
  * @property int $version
- * @property int|null $previous_version_id
+ * @property string|null $previous_version_id
  * @property Carbon|null $agreed_at
  * @property string|null $agreed_fingerprint
  * @property bool $require_human_signoff
@@ -32,7 +33,7 @@ use Illuminate\Support\Carbon;
 class Contract extends Model
 {
     /** @use HasFactory<ContractFactory> */
-    use HasFactory;
+    use HasFactory, HasRandomId;
 
     /**
      * @return array<string, string>
@@ -56,7 +57,7 @@ class Contract extends Model
         return $this->agreed_at !== null;
     }
 
-    public function organisationId(): int
+    public function organisationId(): string
     {
         return $this->project->organisation_id;
     }
@@ -64,7 +65,7 @@ class Contract extends Model
     /**
      * A phase of this contract; any other id is "not found" (nested binding check).
      */
-    public function findPhase(int $phaseId): Phase
+    public function findPhase(string $phaseId): Phase
     {
         return Phase::query()->whereKey($phaseId)->where('contract_id', $this->getKey())->firstOrFail();
     }
@@ -72,7 +73,7 @@ class Contract extends Model
     /**
      * A step of this contract, with its current revision; any other id is "not found".
      */
-    public function findStep(int $stepId): Step
+    public function findStep(string $stepId): Step
     {
         return Step::query()
             ->with('currentRevision')

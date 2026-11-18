@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\HasRandomId;
 use Database\Factories\PhaseFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -11,8 +12,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 /**
- * @property int $id
- * @property int $contract_id
+ * @property string $id
+ * @property string $contract_id
  * @property string $title
  * @property int $position
  * @property Carbon|null $created_at
@@ -22,7 +23,7 @@ use Illuminate\Support\Carbon;
 class Phase extends Model
 {
     /** @use HasFactory<PhaseFactory> */
-    use HasFactory;
+    use HasFactory, HasRandomId;
 
     /**
      * @return array<string, string>

@@ -30,7 +30,7 @@ Each repo's agent represents one party: the repo's `.omp/mcp.json` points the `a
 
 Only when the user asks, and only if your party is an editor. `get_contract` gives the phase and step ids.
 
-- `create_step` adds a step to a phase; `move_step` moves one within its phase or to another phase. Both take `after_step_id`: omit it for the end of the phase, `0` for the start, or a step id to go directly after that step.
+- `create_step` adds a step to a phase; `move_step` moves one within its phase or to another phase. Both take `after_step_id`: omit it for the end of the phase, `"start"` for the start, or a step id to go directly after that step.
 - `create_phase` adds a phase at the end of the contract. Phases cannot be deleted.
 - `archive_step` removes a step from the contract. It **cannot be undone**: confirm with the user first.
 - A new or archived step cancels the contract's sign-offs; moving a step does not affect approvals or sign-offs.

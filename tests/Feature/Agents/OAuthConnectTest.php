@@ -125,7 +125,7 @@ test('the MCP server answers OAuth clients as their agent party', function () {
         ->postJson('/mcp', ['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/call', 'params' => ['name' => 'list_contracts', 'arguments' => []]])
         ->assertOk()->json('result.content.0.text');
 
-    expect($text)->toContain('"id": '.$this->s->contract->id);
+    expect($text)->toContain('"id": "'.$this->s->contract->id.'"');
 });
 
 test('only owners approve, and only for their own organisation’s agent parties', function () {
@@ -233,7 +233,7 @@ test('a sign-in for one party’s URL works there and is refused at another part
     mcpInitialize($this, $b['access_token'], "/mcp/agents/{$this->agent->id}")->assertForbidden();
 
     // Connecting the second repo kept the first connection.
-    expect(AgentConnection::query()->active()->pluck('party_id')->sort()->values()->all())->toBe([$this->agent->id, $other->id]);
+    expect(AgentConnection::query()->active()->pluck('party_id')->all())->toEqualCanonicalizing([$this->agent->id, $other->id]);
 });
 
 test('a client reused for a second party’s URL is shown the approval screen again, and keeps its first connection', function () {
@@ -243,14 +243,14 @@ test('a client reused for a second party’s URL is shown the approval screen ag
     // Passport would skip the screen (the client already has a valid token); the second party isn't connected yet, so it doesn't.
     $second = connect($this, $other, clientId: $clientId, resource: url("/mcp/agents/{$other->id}"));
 
-    expect(AgentConnection::query()->active()->pluck('party_id')->sort()->values()->all())->toBe([$this->agent->id, $other->id]);
+    expect(AgentConnection::query()->active()->pluck('party_id')->all())->toEqualCanonicalizing([$this->agent->id, $other->id]);
 
     $init = mcpInitialize($this, $second['access_token'], "/mcp/agents/{$other->id}")->assertOk();
     app('auth')->forgetGuards();
     $text = $this->withToken($first['access_token'])->withHeaders(['MCP-Protocol-Version' => $init->json('result.protocolVersion')])
         ->postJson("/mcp/agents/{$this->agent->id}", ['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/call', 'params' => ['name' => 'list_contracts', 'arguments' => []]])
         ->assertOk()->json('result.content.0.text');
-    expect($text)->toContain('"id": '.$this->s->contract->id);
+    expect($text)->toContain('"id": "'.$this->s->contract->id.'"');
 });
 
 test('claim-code tokens work only at their own party’s URL', function () {

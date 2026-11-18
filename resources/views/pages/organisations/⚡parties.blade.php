@@ -65,7 +65,7 @@ new class extends Component {
         }
     }
 
-    public function setMembership(int $partyId, bool $member): void
+    public function setMembership(string $partyId, bool $member): void
     {
         $party = Party::query()->where('organisation_id', $this->organisation->id)->findOrFail($partyId);
 
@@ -110,7 +110,7 @@ new class extends Component {
                         @if ($party->isAgent())
                             <flux:button size="xs" icon="key" :href="route('organisations.agent', ['organisation' => $organisation, 'party' => $party])" wire:navigate>{{ __('Agent access') }}</flux:button>
                         @else
-                            <flux:button size="xs" variant="{{ $isMember ? 'ghost' : 'filled' }}" wire:click="setMembership({{ $party->id }}, {{ $isMember ? 'false' : 'true' }})">
+                            <flux:button size="xs" variant="{{ $isMember ? 'ghost' : 'filled' }}" wire:click="setMembership('{{ $party->id }}', {{ $isMember ? 'false' : 'true' }})">
                                 {{ $isMember ? __('Leave') : __('Join') }}
                             </flux:button>
                         @endif

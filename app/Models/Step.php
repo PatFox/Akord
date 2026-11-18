@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\HasRandomId;
 use Database\Factories\StepFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Scope;
@@ -13,12 +14,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 /**
- * @property int $id
- * @property int $phase_id
+ * @property string $id
+ * @property string $phase_id
  * @property int $position
- * @property int|null $current_revision_id
+ * @property string|null $current_revision_id
  * @property Carbon|null $archived_at
- * @property int|null $origin_step_id
+ * @property string|null $origin_step_id
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
@@ -26,7 +27,7 @@ use Illuminate\Support\Carbon;
 class Step extends Model
 {
     /** @use HasFactory<StepFactory> */
-    use HasFactory;
+    use HasFactory, HasRandomId;
 
     /**
      * @return array<string, string>

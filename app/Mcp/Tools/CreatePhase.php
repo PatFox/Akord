@@ -18,9 +18,9 @@ class CreatePhase extends AgentTool
     public function handle(Request $request): Response
     {
         return $this->run($request, function (AgentApi $api, Actor $actor) use ($request) {
-            $v = $request->validate(['contract_id' => 'required|integer', 'title' => 'required|string|max:200']);
+            $v = $request->validate(['contract_id' => 'required|string', 'title' => 'required|string|max:200']);
 
-            return $api->createPhase($actor, (int) $v['contract_id'], $v['title']);
+            return $api->createPhase($actor, $v['contract_id'], $v['title']);
         });
     }
 
@@ -30,7 +30,7 @@ class CreatePhase extends AgentTool
     public function schema(JsonSchema $schema): array
     {
         return [
-            'contract_id' => $schema->integer()->required(),
+            'contract_id' => $schema->string()->required(),
             'title' => $schema->string()->required(),
         ];
     }

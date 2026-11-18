@@ -57,10 +57,10 @@ new class extends Component {
     #[Computed]
     public function connections(): Collection
     {
-        return AgentConnection::query()->active()->where('party_id', $this->party->id)->with(['client', 'approver'])->latest('id')->get();
+        return AgentConnection::query()->active()->where('party_id', $this->party->id)->with(['client', 'approver'])->latest()->latest('id')->get();
     }
 
-    public function disconnect(int $connectionId): void
+    public function disconnect(string $connectionId): void
     {
         $connection = AgentConnection::query()->where('party_id', $this->party->id)->findOrFail($connectionId);
         $this->attempt(fn () => app(RevokeAgentConnection::class)->handle(Auth::user(), $this->party, $connection), __('Disconnected.'));
@@ -73,7 +73,7 @@ new class extends Component {
     #[Computed]
     public function codes(): Collection
     {
-        return $this->party->claimCodes()->latest('id')->limit(10)->get();
+        return $this->party->claimCodes()->latest()->latest('id')->limit(10)->get();
     }
 
     /**
@@ -103,8 +103,9 @@ new class extends Component {
 
     /**
      * Turns one ability on or off for an existing MCP connection or API token.
+     * `$id` is a connection id, or a Sanctum token id (numeric string) for tokens.
      */
-    public function toggleAbility(string $kind, int $id, string $ability): void
+    public function toggleAbility(string $kind, string $id, string $ability): void
     {
         $credential = $kind === 'connection'
             ? AgentConnection::query()->where('party_id', $this->party->id)->findOrFail($id)
@@ -176,7 +177,7 @@ new class extends Component {
                             <flux:table.cell>{{ $connection->approver?->name }}</flux:table.cell>
                             <flux:table.cell>{{ $connection->last_used_at?->diffForHumans() ?? __('Never') }}</flux:table.cell>
                             <flux:table.cell align="end">
-                                <flux:button size="xs" variant="ghost" icon="x-mark" wire:click="disconnect({{ $connection->id }})" wire:confirm="{{ __('Disconnect this tool? It loses access immediately.') }}">{{ __('Disconnect') }}</flux:button>
+                                <flux:button size="xs" variant="ghost" icon="x-mark" wire:click="disconnect('{{ $connection->id }}')" wire:confirm="{{ __('Disconnect this tool? It loses access immediately.') }}">{{ __('Disconnect') }}</flux:button>
                             </flux:table.cell>
                         </flux:table.row>
                     @endforeach

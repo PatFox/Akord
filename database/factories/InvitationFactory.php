@@ -22,7 +22,7 @@ class InvitationFactory extends Factory
     {
         return [
             'contract_id' => Contract::factory(),
-            'organisation_id' => fn (array $attributes) => Contract::query()->findOrFail((int) $attributes['contract_id'])->project->organisation_id,
+            'organisation_id' => fn (array $attributes) => Contract::query()->whereKey($attributes['contract_id'])->firstOrFail()->project->organisation_id,
             'party_id' => fn (array $attributes) => Party::factory()->create(['organisation_id' => $attributes['organisation_id']])->id,
             'email' => fake()->unique()->safeEmail(),
             'token_hash' => hash('sha256', Str::random(40)),

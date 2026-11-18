@@ -67,7 +67,6 @@ final class ReviseStep
                         ->whereRelation('revision', 'content_hash', $current->content_hash)
                         ->orderBy('party_id')
                         ->pluck('party_id')
-                        ->map(fn (mixed $id): int => (int) $id)
                         ->unique()->values()->all()
                     : [],
             ]);

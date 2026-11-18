@@ -36,7 +36,7 @@ class ActivityRecorded implements ShouldBroadcast, ShouldDispatchAfterCommit
     }
 
     /**
-     * @return array{id: int, type: string, contract_id: int|null, subject_type: string|null, subject_id: int|null}
+     * @return array{id: string, type: string, contract_id: string|null, subject_type: string|null, subject_id: string|null}
      */
     public function broadcastWith(): array
     {

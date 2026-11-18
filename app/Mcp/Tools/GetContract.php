@@ -20,11 +20,11 @@ class GetContract extends AgentTool
     public function handle(Request $request): Response
     {
         return $this->run($request, function (AgentApi $api, Actor $actor) use ($request) {
-            $v = $request->validate(['contract_id' => 'required|integer', 'format' => 'nullable|in:json,markdown']);
+            $v = $request->validate(['contract_id' => 'required|string', 'format' => 'nullable|in:json,markdown']);
 
             return ($v['format'] ?? 'json') === 'markdown'
-                ? ['content' => ['markdown' => $api->contractMarkdown($actor, (int) $v['contract_id'])]]
-                : $api->contract($actor, (int) $v['contract_id']);
+                ? ['content' => ['markdown' => $api->contractMarkdown($actor, $v['contract_id'])]]
+                : $api->contract($actor, $v['contract_id']);
         });
     }
 
@@ -34,7 +34,7 @@ class GetContract extends AgentTool
     public function schema(JsonSchema $schema): array
     {
         return [
-            'contract_id' => $schema->integer()->description('The contract id.')->required(),
+            'contract_id' => $schema->string()->description('The contract id.')->required(),
             'format' => $schema->string()->enum(['json', 'markdown'])->description('json (default) or markdown.'),
         ];
     }

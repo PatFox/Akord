@@ -16,13 +16,13 @@ use App\Support\ContractTransaction;
 final class ReorderPhases
 {
     /**
-     * @param  list<int>  $phaseIds  every phase of the contract, in the new order
+     * @param  list<string>  $phaseIds  every phase of the contract, in the new order
      */
     public function handle(Actor $actor, Contract $contract, array $phaseIds): void
     {
         ContractTransaction::run($contract, $actor, ContractAbility::Edit, function (Contract $contract, ActivityLog $log) use ($phaseIds): void {
-            $existing = Phase::query()->where('contract_id', $contract->getKey())->pluck('id')->map(intval(...))->sort()->values()->all();
-            $requested = collect($phaseIds)->map(intval(...))->sort()->values()->all();
+            $existing = Phase::query()->where('contract_id', $contract->getKey())->pluck('id')->sort(SORT_STRING)->values()->all();
+            $requested = collect($phaseIds)->sort(SORT_STRING)->values()->all();
 
             if ($existing !== $requested) {
                 throw new InvalidActionException('The new order must list every phase of the contract exactly once.');

@@ -29,7 +29,7 @@ class ConnectAgentController extends Controller
     {
         $validated = $request->validate([
             'auth_token' => ['required', 'string'],
-            'party_id' => ['required', 'integer'],
+            'party_id' => ['required', 'string'],
             'abilities' => ['array'],
             'abilities.*' => ['string', Rule::in(AgentAbilities::ALL)],
         ]);
@@ -43,7 +43,7 @@ class ConnectAgentController extends Controller
         abort_unless($authRequest instanceof AuthorizationRequest, 419);
 
         $user = $request->user() ?? abort(401);
-        $party = Party::query()->findOrFail((int) $validated['party_id']);
+        $party = Party::query()->whereKey($validated['party_id'])->firstOrFail();
         if (! $party->isAgent() || ! $user->isOwnerOf($party->organisation_id)) {
             throw new AuthorizationException('Only owners can connect a tool to their organisation’s agent parties.');
         }

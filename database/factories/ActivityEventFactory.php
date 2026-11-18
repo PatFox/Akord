@@ -22,6 +22,10 @@ class ActivityEventFactory extends Factory
             'organisation_id' => Organisation::factory(),
             'type' => 'test.event',
             'payload' => [],
+            // The contract's next position, as ActivityLog would assign it.
+            'position' => fn (array $attributes): int => (int) ActivityEvent::query()
+                ->where('contract_id', $attributes['contract_id'] ?? null)
+                ->max('position') + 1,
         ];
     }
 }

@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\V1\MeController;
 use App\Http\Controllers\Api\V1\PhaseController;
 use App\Http\Controllers\Api\V1\SignoffController;
 use App\Http\Controllers\Api\V1\StepController;
+use App\Support\RandomId;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -26,14 +27,14 @@ Route::prefix('v1')->group(function () {
 
         Route::get('contracts', [ContractController::class, 'index']);
         Route::post('contracts', [ContractController::class, 'store']);
-        Route::get('contracts/{contract}', [ContractController::class, 'show'])->whereNumber('contract');
-        Route::get('contracts/{contract}/status', [ContractController::class, 'status'])->whereNumber('contract');
-        Route::post('contracts/{contract}/signoffs', [SignoffController::class, 'store'])->whereNumber('contract');
-        Route::delete('contracts/{contract}/signoffs/mine', [SignoffController::class, 'destroyMine'])->whereNumber('contract');
-        Route::post('contracts/{contract}/phases', [PhaseController::class, 'store'])->whereNumber('contract');
-        Route::post('contracts/{contract}/phases/{phase}/steps', [PhaseController::class, 'storeStep'])->whereNumber(['contract', 'phase']);
+        Route::get('contracts/{contract}', [ContractController::class, 'show'])->where('contract', RandomId::PATTERN);
+        Route::get('contracts/{contract}/status', [ContractController::class, 'status'])->where('contract', RandomId::PATTERN);
+        Route::post('contracts/{contract}/signoffs', [SignoffController::class, 'store'])->where('contract', RandomId::PATTERN);
+        Route::delete('contracts/{contract}/signoffs/mine', [SignoffController::class, 'destroyMine'])->where('contract', RandomId::PATTERN);
+        Route::post('contracts/{contract}/phases', [PhaseController::class, 'store'])->where('contract', RandomId::PATTERN);
+        Route::post('contracts/{contract}/phases/{phase}/steps', [PhaseController::class, 'storeStep'])->where(['contract' => RandomId::PATTERN, 'phase' => RandomId::PATTERN]);
 
-        Route::prefix('contracts/{contract}/steps/{step}')->whereNumber(['contract', 'step'])->group(function () {
+        Route::prefix('contracts/{contract}/steps/{step}')->where(['contract' => RandomId::PATTERN, 'step' => RandomId::PATTERN])->group(function () {
             Route::get('/', [StepController::class, 'show']);
             Route::put('/', [StepController::class, 'update']);
             Route::get('revisions', [StepController::class, 'revisions']);

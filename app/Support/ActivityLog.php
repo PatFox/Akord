@@ -8,10 +8,14 @@ use App\Models\Contract;
 use Illuminate\Database\Eloquent\Model;
 
 /**
- * Writes activity rows for one contract inside a ContractTransaction.
+ * Writes activity rows for one contract while its row is locked (inside a ContractTransaction,
+ * or a transaction that locked the contract first). Each event gets the contract's next
+ * `position`, so its events keep the order they happened in; ids are random.
  */
 final class ActivityLog
 {
+    private ?int $lastPosition = null;
+
     public function __construct(
         private readonly Contract $contract,
         private readonly Actor $actor,
@@ -25,6 +29,7 @@ final class ActivityLog
         $event = new ActivityEvent([
             'organisation_id' => $this->contract->organisationId(),
             'contract_id' => $this->contract->getKey(),
+            'position' => $this->nextPosition(),
             'actor_party_id' => $this->actor->party?->getKey(),
             'actor_user_id' => $this->actor->user?->getKey(),
             'type' => $type,
@@ -56,5 +61,19 @@ final class ActivityLog
         } elseif ($before->isReady() && ! $after->isReady()) {
             $this->record('contract.no_longer_ready');
         }
+    }
+
+    /**
+     * Safe without a lock of its own: the caller holds the contract row lock, so only one
+     * transaction at a time writes this contract's events. The unique (contract_id, position)
+     * index turns a caller that forgot the lock into an error instead of a wrong order.
+     */
+    private function nextPosition(): int
+    {
+        $this->lastPosition ??= (int) ActivityEvent::query()
+            ->where('contract_id', $this->contract->getKey())
+            ->max('position');
+
+        return ++$this->lastPosition;
     }
 }

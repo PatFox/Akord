@@ -11,15 +11,18 @@ use App\Models\Step;
  */
 final class StepOrder
 {
+    /** The `after_step_id` sentinel for "the start of the phase". */
+    public const START = 'start';
+
     /**
-     * The 1-based position for "after this step": null is the end of the phase, 0 the start,
-     * otherwise directly after that active step of the phase.
+     * The 1-based position for "after this step": null is the end of the phase, StepOrder::START
+     * the start, otherwise directly after that active step of the phase.
      *
-     * @param  int|null  $excludingStepId  the step being placed, when it is already in the phase
+     * @param  string|null  $excludingStepId  the step being placed, when it is already in the phase
      *
      * @throws InvalidActionException the anchor is the step itself, or not an active step of the phase (422)
      */
-    public static function positionAfter(Phase $phase, ?int $afterStepId, ?int $excludingStepId = null): int
+    public static function positionAfter(Phase $phase, ?string $afterStepId, ?string $excludingStepId = null): int
     {
         $siblings = self::activeIds($phase->id, $excludingStepId);
 
@@ -27,7 +30,7 @@ final class StepOrder
             return count($siblings) + 1;
         }
 
-        if ($afterStepId === 0) {
+        if ($afterStepId === self::START) {
             return 1;
         }
 
@@ -65,24 +68,24 @@ final class StepOrder
     /**
      * Closes the gaps in a phase's active steps (after a step left it).
      */
-    public static function compact(int $phaseId): void
+    public static function compact(string $phaseId): void
     {
         self::renumber(self::activeIds($phaseId));
     }
 
     /**
-     * @return list<int>
+     * @return list<string>
      */
-    private static function activeIds(int $phaseId, ?int $excludingStepId = null): array
+    private static function activeIds(string $phaseId, ?string $excludingStepId = null): array
     {
         return array_values(Step::query()->where('phase_id', $phaseId)->active()
             ->when($excludingStepId !== null, fn ($query) => $query->whereKeyNot($excludingStepId))
             ->orderBy('position')->orderBy('id')
-            ->pluck('id')->map(intval(...))->all());
+            ->pluck('id')->all());
     }
 
     /**
-     * @param  list<int>  $stepIds
+     * @param  list<string>  $stepIds
      */
     private static function renumber(array $stepIds): void
     {

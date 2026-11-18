@@ -12,15 +12,15 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('invitations', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('organisation_id')->constrained();
-            $table->foreignId('contract_id')->constrained();
-            $table->foreignId('party_id')->constrained();
+            $table->randomId();
+            $table->foreignRandomId('organisation_id')->constrained();
+            $table->foreignRandomId('contract_id')->constrained();
+            $table->foreignRandomId('party_id')->constrained();
             $table->string('email');
             $table->string('token_hash', 64)->unique();
             $table->timestamp('expires_at');
             $table->timestamp('accepted_at')->nullable();
-            $table->foreignId('invited_by')->nullable()->constrained('users')->nullOnDelete();
+            $table->foreignRandomId('invited_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamps();
         });
     }

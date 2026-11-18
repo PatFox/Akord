@@ -13,7 +13,7 @@ return new class extends Migration
     {
         Schema::table('invitations', function (Blueprint $table) {
             $table->timestamp('revoked_at')->nullable()->after('accepted_at');
-            $table->foreignId('accepted_user_id')->nullable()->after('revoked_at')->constrained('users')->nullOnDelete();
+            $table->foreignRandomId('accepted_user_id')->nullable()->after('revoked_at')->constrained('users')->nullOnDelete();
         });
     }
 

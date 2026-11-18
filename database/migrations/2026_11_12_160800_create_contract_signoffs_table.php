@@ -12,10 +12,10 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('contract_signoffs', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('contract_id')->constrained();
-            $table->foreignId('party_id')->constrained();
-            $table->foreignId('user_id')->nullable()->constrained()->nullOnDelete();
+            $table->randomId();
+            $table->foreignRandomId('contract_id')->constrained();
+            $table->foreignRandomId('party_id')->constrained();
+            $table->foreignRandomId('user_id')->nullable()->constrained()->nullOnDelete();
             $table->string('fingerprint', 64);
             $table->timestamp('withdrawn_at')->nullable();
             // true while active, NULL once withdrawn; see the approvals migration.

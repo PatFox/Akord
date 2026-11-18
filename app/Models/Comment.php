@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\CommentKind;
+use App\Models\Concerns\HasRandomId;
 use Database\Factories\CommentFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -12,12 +13,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 /**
- * @property int $id
- * @property int $step_id
- * @property int $step_revision_id
- * @property int|null $parent_id
- * @property int $author_party_id
- * @property int|null $author_user_id
+ * @property string $id
+ * @property string $step_id
+ * @property string $step_revision_id
+ * @property string|null $parent_id
+ * @property string $author_party_id
+ * @property string|null $author_user_id
  * @property CommentKind $kind
  * @property string $body_md
  * @property Carbon|null $resolved_at
@@ -28,7 +29,7 @@ use Illuminate\Support\Carbon;
 class Comment extends Model
 {
     /** @use HasFactory<CommentFactory> */
-    use HasFactory;
+    use HasFactory, HasRandomId;
 
     /**
      * @return array<string, string>

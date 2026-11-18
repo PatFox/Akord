@@ -22,7 +22,7 @@ class CommentFactory extends Factory
     {
         return [
             'step_id' => Step::factory(),
-            'step_revision_id' => fn (array $attributes) => Step::query()->findOrFail((int) $attributes['step_id'])->current_revision_id,
+            'step_revision_id' => fn (array $attributes) => Step::query()->whereKey($attributes['step_id'])->firstOrFail()->current_revision_id,
             'author_party_id' => Party::factory(),
             'kind' => CommentKind::General,
             'body_md' => fake()->paragraph(),

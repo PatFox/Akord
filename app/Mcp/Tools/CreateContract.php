@@ -18,9 +18,9 @@ class CreateContract extends AgentTool
     public function handle(Request $request): Response
     {
         return $this->run($request, function (AgentApi $api, Actor $actor) use ($request) {
-            $v = $request->validate(['project_id' => 'required|integer', 'title' => 'required|string|max:200']);
+            $v = $request->validate(['project_id' => 'required|string', 'title' => 'required|string|max:200']);
 
-            return $api->createContract($actor, (int) $v['project_id'], $v['title']);
+            return $api->createContract($actor, $v['project_id'], $v['title']);
         });
     }
 
@@ -30,7 +30,7 @@ class CreateContract extends AgentTool
     public function schema(JsonSchema $schema): array
     {
         return [
-            'project_id' => $schema->integer()->required(),
+            'project_id' => $schema->string()->required(),
             'title' => $schema->string()->required(),
         ];
     }

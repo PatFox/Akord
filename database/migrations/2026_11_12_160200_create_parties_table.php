@@ -12,8 +12,8 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('parties', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('organisation_id')->constrained();
+            $table->randomId();
+            $table->foreignRandomId('organisation_id')->constrained();
             $table->string('name');
             $table->string('type', 20);
             $table->timestamps();
@@ -21,16 +21,16 @@ return new class extends Migration
 
         Schema::create('party_user', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('party_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('user_id')->constrained()->cascadeOnDelete();
+            $table->foreignRandomId('party_id')->constrained()->cascadeOnDelete();
+            $table->foreignRandomId('user_id')->constrained()->cascadeOnDelete();
             $table->timestamps();
 
             $table->unique(['party_id', 'user_id']);
         });
 
         Schema::create('agent_claim_codes', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('party_id')->constrained()->cascadeOnDelete();
+            $table->randomId();
+            $table->foreignRandomId('party_id')->constrained()->cascadeOnDelete();
             $table->string('code_hash', 64)->unique();
             $table->timestamp('expires_at');
             $table->timestamp('claimed_at')->nullable();

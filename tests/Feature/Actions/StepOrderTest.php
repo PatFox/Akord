@@ -6,6 +6,7 @@ use App\Actions\Steps\CreateStep;
 use App\Actions\Steps\MoveStep;
 use App\Models\Phase;
 use App\Models\Step;
+use App\Support\StepOrder;
 use Tests\Support\Scenario;
 
 beforeEach(function () {
@@ -28,14 +29,14 @@ function order(Phase $phase): array
     return $steps->map(fn (Step $step) => $step->currentRevision->title)->all();
 }
 
-function createAfter(Scenario $s, Phase $phase, string $title, ?int $afterStepId): Step
+function createAfter(Scenario $s, Phase $phase, string $title, ?string $afterStepId): Step
 {
     return app(CreateStep::class)->handle($s->alpha, $phase, $title, '', null, $afterStepId);
 }
 
-test('a new step goes at the end, at the start (0), or directly after a given step', function () {
+test('a new step goes at the end, at the start, or directly after a given step', function () {
     createAfter($this->s, $this->s->phase, 'D', null);
-    createAfter($this->s, $this->s->phase, 'E', 0);
+    createAfter($this->s, $this->s->phase, 'E', StepOrder::START);
     createAfter($this->s, $this->s->phase, 'F', $this->b->id);
 
     expect(order($this->s->phase))->toBe(['E', 'A', 'B', 'F', 'C', 'D']);
@@ -43,12 +44,12 @@ test('a new step goes at the end, at the start (0), or directly after a given st
 
 test('moving within and across phases keeps both phases numbered without gaps', function () {
     $second = app(CreatePhase::class)->handle($this->s->alpha, $this->s->contract, 'Second');
-    $move = fn (Step $step, Phase $to, ?int $after) => app(MoveStep::class)->handleAfter($this->s->alpha, $step, $to, $after);
+    $move = fn (Step $step, Phase $to, ?string $after) => app(MoveStep::class)->handleAfter($this->s->alpha, $step, $to, $after);
 
     $move($this->b, $second, null);
-    $move($this->a, $second, 0);
-    $move($this->c, $this->s->phase, 0);
-    $move($this->b, $second, 0);
+    $move($this->a, $second, StepOrder::START);
+    $move($this->c, $this->s->phase, StepOrder::START);
+    $move($this->b, $second, StepOrder::START);
 
     expect(order($this->s->phase))->toBe(['C'])
         ->and(order($second))->toBe(['B', 'A']);

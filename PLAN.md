@@ -51,6 +51,8 @@ This document records the agreed plan: v2, as amended by v3 and decisions D8–D
 
 ## 2. Data model
 
+Every entity's `id`, and every foreign key to one, is a random 16-character string (Phase 13). Join-table rows keep internal integer ids.
+
 | Table | Key fields | Notes |
 |---|---|---|
 | `organisations` | name, slug | The top tenancy boundary |
@@ -70,14 +72,14 @@ This document records the agreed plan: v2, as amended by v3 and decisions D8–D
 | `comments` | step_id, step_revision_id, parent_id, author_party_id, author_user_id, kind (`question`/`suggestion`/`general`), body_md, resolved_at | Linked to the revision it discusses |
 | `approvals` | step_id, step_revision_id, party_id, user_id, withdrawn_at, active (generated) | At most one active approval per (step, revision, party), enforced in the database |
 | `contract_signoffs` | contract_id, party_id, user_id (null for agents), fingerprint, created_at, withdrawn_at, active (generated) | At most one active sign-off per (contract, party, fingerprint), enforced in the database |
-| `activity_events` | organisation_id, contract_id, actor, type, subject, payload | Single timeline. Its increasing `id` is the cursor for `activity?since=`. |
+| `activity_events` | organisation_id, contract_id, position, actor, type, subject, payload, seq | Single timeline. `seq` (set after commit) is the cursor for `activity?since=`; `position` (1, 2, 3… per contract) orders a contract's events. |
 
 ### Database portability (D12)
 
 - **One active row per key, without partial indexes.** MySQL has no `CREATE UNIQUE INDEX … WHERE`. `approvals` and `contract_signoffs` instead have a stored generated column, `active` (`case when withdrawn_at is null then true end`), which is true while the row is active and `NULL` once withdrawn. The unique index includes `active`. All three engines treat NULLs as distinct in a unique index, so withdrawn rows never conflict. Application code never writes `active`: don't set it and don't `replicate()` these models.
 - **Case-insensitive text on MySQL.** The default `utf8mb4_*_ci` collations compare text case-insensitively, while SQLite and PostgreSQL compare case-sensitively. Normalise emails to lowercase on write (users and invitations) and match on the normalised value, so invitation email matching (Phase 6) behaves the same everywhere. Hashes and fingerprints are lowercase hex, so they're unaffected.
 - **Row locks are real on MySQL and PostgreSQL.** SQLite ignores `lockForUpdate()` and runs writes one at a time, so SQLite tests can't prove lock-based correctness. Every write goes through `ContractTransaction`, whose **first statement** locks the contract row. That gives one lock order (no deadlocks), and on MySQL REPEATABLE READ every later plain read in the transaction sees all work committed before the lock. Code inside a transaction must therefore never read before taking that lock, and must re-read related rows rather than trust models loaded earlier (`Contract::findStep()` / `findPhase()`). Concurrency tests live in `tests/Concurrency`, run only on a server database, and are skipped on SQLite.
-- **Activity cursor (decided in Phase 3).** Auto-increment ids are allocated at insert, not commit, so paging by id can skip a lower id that commits late. Events are inserted with `seq = NULL`. After each write commits, `ActivitySequencer` runs a short transaction behind the single `activity_sequencer` row lock and numbers every committed, unnumbered event in id order. The feed pages by `seq` (`ActivityEvent::after($cursor)`). Each sequencer run sees only committed rows and commits before the next starts, so a late committer always gets a higher `seq` than anything a reader has seen. Only this small step is serialised, not every write. Per-organisation locks were rejected because a user's feed can span organisations. `activity?since=` (Phase 7) must call `ActivitySequencer::run()` before reading, to number any event whose post-commit run never happened (for example, a crashed process).
+- **Activity cursor (decided in Phase 3, ordering changed in Phase 13).** Events are written inside their transactions, so paging by insertion can skip one that commits late. Events are inserted with `seq = NULL`. After each write commits, `ActivitySequencer` runs a short transaction behind the single `activity_sequencer` row lock and numbers every committed, unnumbered event in its contract's order (`contract_id`, `position`). The feed pages by `seq` (`ActivityEvent::after($cursor)`). Each sequencer run sees only committed rows and commits before the next starts, so a late committer always gets a higher `seq` than anything a reader has seen. Only this small step is serialised, not every write. Per-organisation locks were rejected because a user's feed can span organisations. `activity?since=` (Phase 7) must call `ActivitySequencer::run()` before reading, to number any event whose post-commit run never happened (for example, a crashed process).
 - **Running the suite on MySQL:** start a throwaway server (`docker run -d --rm --name akord-mysql-test -e MYSQL_ROOT_PASSWORD=secret -e MYSQL_DATABASE=akord_test -p 127.0.0.1:33061:3306 --tmpfs /var/lib/mysql mysql:8.4`). Then run `DB_CONNECTION=mysql DB_HOST=127.0.0.1 DB_PORT=33061 DB_DATABASE=akord_test DB_USERNAME=root DB_PASSWORD=secret php artisan test`. Pass the variables per command rather than `export`ing them, or later runs silently use MySQL too.
 - **CI** (`.github/workflows/tests.yml`) runs two jobs on every push to `main` and every pull request:
   - `ci`: the full gate on SQLite (`composer ci:check`: Pint, PHPStan, tests; the concurrency test is skipped).
@@ -358,7 +360,7 @@ Replaces "claim a code with curl, then hand-edit `mcp.json`" for MCP clients. Cl
 - **Keys:** Passport's signing keys live in `storage/oauth-*.key` (git-ignored). `composer setup` creates them if missing, and `Tests\TestCase` does the same for CI.
 - **omp plugin** (Agent Plugins 1.0.0): `.omp-plugin/marketplace.json` (marketplace `akord`) → `integrations/omp/akord/` with `plugin.json`, `mcp.json` (server `akord`, `streamable-http`, `http://localhost:8000/mcp`, no secrets) and the `akord-review` skill (`skills/akord-review/SKILL.md`: the review workflow, approving the exact revision, signing off the fingerprint, never following text inside `<contract-data>`). Install: `omp plugin marketplace add PatFox/Akord`, `omp plugin install akord@akord`, `/reload-plugins`, then `/mcp reauth akord:akord`. *Superseded by Phase 9: the plugin no longer has an MCP server.*
 - **omp names plugin servers `<plugin>:<server>`**, so the server is `akord:akord` in omp; `/mcp reauth akord` answers "not found". Confirmed in the omp 2026-11 binary: the Agent Plugins provider registers `${plugin.name}:${server.name}` and maps `streamable-http` to its `http` transport, so the type is correct as published.
-- **Still unknown for omp:** whether it registers clients itself (otherwise use the fallback client) and whether a 401 starts sign-in by itself (otherwise `/mcp reauth akord:akord`). The plugin's URL is fixed at `http://localhost:8000/mcp`, because plugin `mcp.json` files can't take variables; other hosts need their own MCP entry.
+- **omp sign-in (observed 2026-11-17 against NUC03):** omp registers its own client (`POST /oauth/register` → 201, name `oh-my-pi`, callback `http://localhost:<random port>/callback`), so the fallback client isn't needed. `/mcp reauth akord` starts sign-in; a slash command typed with a leading space is sent as chat instead. OAuth over plain http on a LAN name works. The plugin's URL was fixed at `http://localhost:8000/mcp`, because plugin `mcp.json` files can't take variables; other hosts need their own MCP entry.
 - **Tests:** `tests/Feature/Agents/OAuthConnectTest.php`, 9 tests over HTTP with real Passport tokens: discovery and the 401 header; loopback-only registration; the whole consent flow, after which REST and MCP act as the chosen party with the chosen abilities (a missing ability gives 403); non-owners, human parties and other organisations' agents can't be approved; disconnecting revokes access and refresh tokens (401, `invalid_grant`); an approver who stops being owner cuts the connection off (403) until restored; refreshed tokens keep the party; the fallback command creates a public loopback client.
 - **Verified:**
   - `composer test` on SQLite: Pint pass, Larastan 0 errors, 183 passed plus 1 skipped.
@@ -459,7 +461,7 @@ Replaces "claim a code with curl, then hand-edit `mcp.json`" for MCP clients. Cl
   - `php artisan test` on SQLite: 196 passed plus 1 skipped.
   - CI on `5e37ab1`: SQLite gate and MySQL 8.4 both passed.
   - Against the running app: `POST /mcp/agents/6` gives 401 with `resource_metadata=…/mcp/agents/6`, and that document has `resource: http://localhost:8000/mcp/agents/6`.
-  - Not yet done end to end with omp: a repo with `.omp/mcp.json`, `/mcp reauth akord`, the fixed approval screen, then tools as that party.
+  - End to end with omp (2026-11-17, NUC03): this repo's `.omp/mcp.json` points at `http://akord.nuc03/mcp/agents/au6t2ref4gkdhx01`. `/mcp reauth akord` registered a client, the approval screen was fixed to OMP - Akord, and the connection was saved with read, comment, edit, approve and create, plus an `mcp:use` token. The tools did not appear in the session that ran the sign-in; the server saw no authenticated MCP call (`last_used_at` stayed empty).
 
 ### Phase 10: agents change contract structure ✅ done 2026-11-13
 
@@ -469,7 +471,7 @@ Replaces "claim a code with curl, then hand-edit `mcp.json`" for MCP clients. Cl
 
 **Position: `after_step_id`**, the same for create and move:
 - omitted: the end of the phase;
-- `0`: the start;
+- `"start"` (`StepOrder::START`; `0` until Phase 13): the start;
 - a step id: directly after that active step of the target phase.
 - Anything else is `422`: an archived step, a step in another phase, or the step itself.
 
@@ -630,9 +632,53 @@ powershell -ExecutionPolicy Bypass -File .\akord.ps1 install
 
 Update with `powershell -ExecutionPolicy Bypass -File $env:LOCALAPPDATA\Akord\akord.ps1 update`. Agents use the instance's URL in their repo's `.omp/mcp.json` (`http://localhost:8100/mcp/agents/<id>`).
 
+### Phase 13: random string ids ✅ done 2026-11-17
+
+**Decision.** Every entity's primary key is a random 16-character string instead of an auto-increment integer. Ids in URLs and the API no longer reveal counts or creation order, and can't be enumerated. The database starts blank: the migrations were changed in place, without a conversion step.
+
+- **Format** (`App\Support\RandomId`): 16 characters from `[0-9a-z]`, from `random_int` (about 82 bits).
+  - Lower case only, because MySQL's default collations compare case-insensitively (D12).
+  - Never all digits, because PHP turns an all-digit array key into an int.
+- **Models:** `App\Models\Concerns\HasRandomId`, built on Laravel's `HasUniqueStringIds`.
+  - It is used by User, Organisation, Project, Party, AgentClaimCode, AgentConnection, Contract, Invitation, Phase, Step, StepRevision, Comment, Approval, ContractSignoff and ActivityEvent.
+  - Route binding answers 404 for a malformed id without querying.
+- **Schema:** `AppServiceProvider::configureSchema()` adds the Blueprint macros `randomId()` (`char(16)` primary key), `foreignRandomId()` (`char(16)` with `constrained()`) and `randomIdMorphs()`.
+  - Framework tables' keys to our models changed too: sessions, passkeys, Sanctum `tokenable`, Passport `user_id` and `owner`, and notifications `notifiable`.
+  - Larastan can't see columns made by these macros, so code reads Sanctum's `tokenable_*` with `getAttribute()`.
+- **Unchanged:**
+  - Join-table row ids (`organisation_user`, `party_user`, `contract_party`). They are never exposed, and plain pivots can't generate ids on `attach()`.
+  - Sanctum token ids, Passport's own ids, passkeys and jobs.
+  - Counters: `seq`, revision `number`, `position`, `version`.
+- **Ordering no longer comes from ids:**
+  - `activity_events.position` numbers a contract's events 1, 2, 3…. `ActivityLog` assigns it while the contract row is locked; every caller locks it first, and the unique `(contract_id, position)` index turns a missing lock into an error.
+  - `ActivitySequencer` numbers pending events by `(contract_id, position)`, and the contract page's change list orders by `position`.
+  - "Latest connection" in `AgentActor` is ordered by `created_at`, then id, because re-approval creates a new row. `AgentApi::listContracts` uses `created_at`, then id.
+  - Where id only breaks ties (steps with the same position, notification recipients), it stays.
+- **API and MCP:**
+  - Every entity id is a JSON string. Validation and MCP schemas say string, and routes constrain ids to `RandomId::PATTERN`.
+  - `after_step_id`'s start value is `"start"` (`StepOrder::START`) instead of `0`.
+  - The skill text says so; the plugin is now 1.3.1.
+- **Fingerprint:** step and party ids are sorted as strings (`strcmp`), so the pinned test hash changed. That's harmless with no stored sign-offs.
+- **Livewire:**
+  - Ids inside `wire:click` expressions are quoted (`'{{ $id }}'`).
+  - `wire:sort:item` must stay unquoted, because Livewire sends its text unchanged. Found in a browser: a quoted item reached `sortStep` with the quotes, got 404, and the drag silently reverted. `ContractPageTest` now pins the attribute.
+- **Tests:**
+  - `ActivityCursorTest`: a late commit is delivered after the cursor, and pending events are numbered by `position`, not id (the later event gets the id that sorts first).
+  - Lists that were compared in id order, which used to be creation order, now use `toEqualCanonicalizing`.
+- **Verified:**
+  - Pint pass, Larastan 0 errors.
+  - `php artisan test` on SQLite: 210 passed plus 1 skipped, in three runs.
+  - MySQL 8.4 (throwaway container, `--fail-on-skipped`): 211 passed, including `tests/Concurrency`.
+  - Demo data in a throwaway database: ids are random, and one contract's 20 events were sequenced in position order 1–20.
+  - In a browser against that database: moving and renaming a phase, the add-step form, drag-sort (the request carries the bare id, gets 200, and the order persists after reload), the required-approver toggle, and reply.
+- **Existing databases** need `migrate:fresh`.
+  - The dev database was reset and is blank.
+  - NUC03 moved to a new, empty MySQL database with this release (§8).
+  - Agents must reconnect, because their OAuth clients and tokens were in the old databases.
+
 ### Order of work
 
-Phases 1–12 are done, in order.
+Phases 1–13 are done, in order.
 
 ## 5. Files and areas
 
@@ -718,6 +764,37 @@ Phases 1–12 are done, in order.
   - `.env.example` now documents `REVERB_SERVER_PORT`, still 8080 by default.
   - Checked in a browser: Echo connected to `ws://localhost:8082` and subscribed to `private-contract.4`. A step the agent added over REST appeared on the owner's open page about 0.9 s later, with the "contract changed while you were reviewing it" notice. The broadcast job reported `DONE`; before the move it failed.
 - **Stable instance on this machine:** ports 8100 (web) and 8101 (Reverb), so it runs beside dev (8000, 8082, Vite 5173).
+- **Server instance on NUC03 (`http://akord.nuc03`), installed 2026-11-17, moved to MySQL the same day:**
+  - **Server:** `pat@192.168.1.205` (key in `~/.ssh/config`), running Ubuntu **26.04**, Apache 2.4.66 and PHP **8.5.4** with **mod_php** (prefork), like the other `.nuc03` vhosts. `sudo` needs a password, so root steps go to the user as a script.
+  - **Release:** `v0.1.0-pre.8b88971.ids`, a local `build-release.php` of the working tree: `8b88971` plus the then-uncommitted Phase 13 (random ids). It was copied over with scp; no GitHub release existed yet. Laravel 13.42 runs on PHP 8.5 without errors. The first release, `v0.1.0-pre.8b88971` (integer ids, SQLite), is still in `releases/`.
+  - **Database:** MySQL **8.4.13**. Database `akord` (utf8mb4), user `akord@localhost` (`caching_sha2_password`, rights on `akord.*` only).
+    - Akord connects over the Unix socket: `DB_SOCKET=/var/run/mysqld/mysqld.sock`. The password is only in `shared/.env`.
+    - MySQL `root` has its own password (not socket auth), so creating databases or users needs the user (`mysql -u root -p`); `sudo` alone is refused.
+    - The database started empty. The SQLite file from the first install, `shared/database/akord.sqlite` (integer ids, one account and organisation), is unused and kept, along with `.env` from before the switch: `backups/env-v0.1.0-pre.8b88971-20261117-164709`.
+  - **Layout:** as in the README, rooted at `/var/www/vhosts/akord.nuc03` (`releases/`, `shared/`, `backups/`, `current`). The files are owned by `pat`, not `www-data`. Apache (`www-data`, which is in group `pat`) and `pat` share `shared/storage` and `shared/database` through ACLs: `u:www-data:rwX,u:pat:rwX`, plus the same as default ACLs on the directories. `.env` is 640 with `u:www-data:r`, and the OAuth keys are 660.
+    - Compiled views that `www-data` writes have mask `r-x`. That's harmless: Laravel replaces them by renaming, and `view:cache` as `pat` worked.
+  - **Vhost:** `/etc/apache2/sites-available/akord.nuc03.conf` follows the house style, with the README's `/app/` and `/apps/` Reverb proxy. Plain http (LAN name, no certificate), so `SESSION_SECURE_COOKIE=false`, and passkeys don't work (no secure context).
+  - **Name resolution:** dnsmasq on the server answers `*.nuc03`, but the server itself and this PC resolve through `hosts` files. Both have `akord.nuc03` (`127.0.0.1` on the server, because Akord publishes events to its own URL; `192.168.1.205` on the PC).
+  - **Mail** goes to Mailpit: SMTP `127.0.0.1:1025`, UI at `http://mailpit.nuc03`, API at `127.0.0.1:8025`.
+  - **Reverb (`127.0.0.1:8080`) and the queue worker** are systemd **user** units, `~/.config/systemd/user/akord-{reverb,queue}.service`, the same way `loom-*` runs. `pat` has lingering on. Manage them with `systemctl --user …` and `journalctl --user -u akord-queue`.
+  - **Updating** follows README "Updating on an Ubuntu server" with these changes:
+    - the path is `/var/www/vhosts/akord.nuc03`;
+    - run artisan as `pat`, without `sudo -u www-data`, and skip the `chown`;
+    - `systemctl --user stop|start akord-queue akord-reverb`;
+    - **back up with mysqldump** instead of copying the SQLite file: `MYSQL_PWD=… mysqldump -u akord -S /var/run/mysqld/mysqld.sock --single-transaction --no-tablespaces akord > backups/akord-$OLD-$(date +%Y%m%d-%H%M%S).sql` (35 tables, checked). Restore with `mysql -u akord -p -S /var/run/mysqld/mysqld.sock akord < backups/<file>.sql`;
+    - the reload is `sudo systemctl reload apache2` (mod_php; the only root step). After the 2026-11-17 switch it wasn't needed: once mod_php's `realpath_cache_ttl` (120 s) had passed in maintenance mode, every request ran the new release (12 page loads created 12 sessions in MySQL and none in SQLite). Wait out the 120 s before `artisan up` if you skip the reload.
+  - **Checked after install:**
+    - `/up` returns 200 from the PC and from the server, and the login page renders.
+    - Echo connected through Apache, and an event published from the server through `/apps/` reached the browser.
+    - `Artisan::queue` ran on the worker, a test email reached Mailpit (deleted afterwards), and the web server wrote sessions.
+    - PHP receives `Authorization`.
+    - No accounts or data were created.
+  - **Checked after the MySQL switch:**
+    - `/up`, `/login` and `/register` return 200.
+    - The schema has `char(16)` ids and `activity_events.position`, all 26 migrations ran, and there are no users.
+    - A queued job ran on the worker (0 jobs left, 0 failed), and a broadcast went through `/apps/` (200).
+    - No Laravel errors were logged.
+  - **From omp:** `artisan tinker <file>` over ssh waits for stdin afterwards, so add `< /dev/null`. `pkill -f` over ssh can match its own command line; use a `[a]rtisan` pattern.
 - **Running the dev server from omp:**
   - Start it as a named service and set `proc://akord-dev/mode` to `detached`, so it survives omp restarts.
   - Switching the mode starts a second copy, and stopping a service leaves its child processes running on Windows. Check for leftover `artisan`, `concurrently` and `vite` processes and stop them.

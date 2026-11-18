@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\HasRandomId;
 use Database\Factories\StepRevisionFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -13,14 +14,14 @@ use LogicException;
 /**
  * Append-only snapshot of a step's title and description.
  *
- * @property int $id
- * @property int $step_id
+ * @property string $id
+ * @property string $step_id
  * @property int $number
  * @property string $title
  * @property string $description_md
  * @property string $content_hash
- * @property int $author_party_id
- * @property int|null $author_user_id
+ * @property string $author_party_id
+ * @property string|null $author_user_id
  * @property string|null $change_note
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
@@ -29,7 +30,7 @@ use LogicException;
 class StepRevision extends Model
 {
     /** @use HasFactory<StepRevisionFactory> */
-    use HasFactory;
+    use HasFactory, HasRandomId;
 
     protected static function booted(): void
     {

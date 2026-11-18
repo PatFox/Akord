@@ -7,12 +7,15 @@ use Illuminate\Support\Facades\DB;
 /**
  * Numbers committed activity events in commit order (`seq`, the activity cursor).
  *
- * Auto-increment ids are allocated at insert, not commit, so a reader paging by id
- * could skip a lower id that commits late. This runs in its own short transaction
- * behind the single activity_sequencer row lock: it only sees committed events, and
- * every run commits before the next starts, so a late committer always receives a
- * higher seq than anything a reader has already seen. Runs after every contract
- * write and should run before serving the feed.
+ * Events are written inside their transactions, so a reader paging by insertion could
+ * skip one that commits late. This runs in its own short transaction behind the single
+ * activity_sequencer row lock: it only sees committed events, and every run commits
+ * before the next starts, so a late committer always receives a higher seq than
+ * anything a reader has already seen. Runs after every contract write and should run
+ * before serving the feed.
+ *
+ * Pending events are numbered in their contract's order (`position`; ids are random).
+ * Events of different contracts have no order between them that matters.
  */
 final class ActivitySequencer
 {
@@ -23,7 +26,7 @@ final class ActivitySequencer
             // below is then taken after the lock, so it sees every committed event.
             $last = (int) DB::table('activity_sequencer')->where('id', 1)->lockForUpdate()->value('last_seq');
 
-            $pending = DB::table('activity_events')->whereNull('seq')->orderBy('id')->pluck('id');
+            $pending = DB::table('activity_events')->whereNull('seq')->orderBy('contract_id')->orderBy('position')->pluck('id');
 
             if ($pending->isEmpty()) {
                 return;

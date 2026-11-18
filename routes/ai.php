@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\EnsureAgentForUrlParty;
 use App\Mcp\Servers\ContractServer;
+use App\Support\RandomId;
 use Laravel\Mcp\Facades\Mcp;
 
 // OAuth for MCP clients: discovery documents and dynamic client registration
@@ -17,5 +18,5 @@ Mcp::web('/mcp', ContractServer::class)->middleware(['auth:sanctum,api', 'thrott
 // clients keep one sign-in per URL, and a credential only works at its own party's URL
 // (App\Support\Agents\AgentActor).
 Mcp::web('/mcp/agents/{party}', ContractServer::class)
-    ->where('party', '[0-9]+')
+    ->where('party', RandomId::PATTERN)
     ->middleware(['auth:sanctum,api', 'throttle:agent', EnsureAgentForUrlParty::class]);

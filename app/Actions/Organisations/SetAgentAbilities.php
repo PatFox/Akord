@@ -24,7 +24,7 @@ final class SetAgentAbilities
 
         $belongs = $credential instanceof AgentConnection
             ? $credential->party_id === $agent->id && $credential->revoked_at === null
-            : $credential->tokenable_type === $agent->getMorphClass() && (int) $credential->tokenable_id === $agent->id;
+            : $credential->getAttribute('tokenable_type') === $agent->getMorphClass() && $credential->getAttribute('tokenable_id') === $agent->id;
         abort_unless($belongs, 404);
 
         $credential->forceFill(['abilities' => AgentAbilities::normalise($abilities)])->save();

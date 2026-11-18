@@ -15,7 +15,7 @@ final class OrganisationAccess
      * @throws ModelNotFoundException<Organisation>
      * @throws AuthorizationException
      */
-    public static function ensureOwner(User $user, int $organisationId): void
+    public static function ensureOwner(User $user, string $organisationId): void
     {
         if ($user->isOwnerOf($organisationId)) {
             return;

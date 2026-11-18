@@ -10,19 +10,19 @@ namespace App\Support;
 final class ContractFingerprint
 {
     /**
-     * @param  array<int|string, string>  $contentHashByStepId
-     * @param  array<int, int|string>  $requiredPartyIds
+     * @param  array<string, string>  $contentHashByStepId
+     * @param  list<string>  $requiredPartyIds
      */
     public static function compute(array $contentHashByStepId, array $requiredPartyIds): string
     {
         $steps = [];
         foreach ($contentHashByStepId as $stepId => $hash) {
-            $steps[] = [(int) $stepId, $hash];
+            $steps[] = [strval($stepId), $hash];
         }
-        usort($steps, fn (array $a, array $b): int => $a[0] <=> $b[0]);
+        usort($steps, fn (array $a, array $b): int => strcmp($a[0], $b[0]));
 
-        $required = array_map(intval(...), array_values($requiredPartyIds));
-        sort($required);
+        $required = $requiredPartyIds;
+        usort($required, strcmp(...));
 
         return hash('sha256', (string) json_encode(['steps' => $steps, 'required' => $required]));
     }

@@ -17,15 +17,15 @@ use App\Support\ContractTransaction;
 final class ReorderSteps
 {
     /**
-     * @param  list<int>  $stepIds  every active step of the phase, in the new order
+     * @param  list<string>  $stepIds  every active step of the phase, in the new order
      */
     public function handle(Actor $actor, Phase $phase, array $stepIds): void
     {
         ContractTransaction::run($phase->contract, $actor, ContractAbility::Edit, function (Contract $contract, ActivityLog $log) use ($phase, $stepIds): void {
             $phase = $contract->findPhase($phase->id);
 
-            $existing = Step::query()->where('phase_id', $phase->id)->active()->pluck('id')->map(intval(...))->sort()->values()->all();
-            $requested = collect($stepIds)->map(intval(...))->sort()->values()->all();
+            $existing = Step::query()->where('phase_id', $phase->id)->active()->pluck('id')->sort(SORT_STRING)->values()->all();
+            $requested = collect($stepIds)->sort(SORT_STRING)->values()->all();
 
             if ($existing !== $requested) {
                 throw new InvalidActionException('The new order must list every active step of the phase exactly once.');

@@ -53,7 +53,7 @@ new class extends Component {
 
     public string $commentBody = '';
 
-    public ?int $replyTo = null;
+    public ?string $replyTo = null;
 
     public string $replyBody = '';
 
@@ -281,7 +281,7 @@ new class extends Component {
         }
     }
 
-    public function resolve(int $commentId): void
+    public function resolve(string $commentId): void
     {
         $comment = $this->step->comments()->findOrFail($commentId);
         $this->attempt(fn () => app(ResolveComment::class)->handle($this->actor(), $comment));
@@ -437,9 +437,9 @@ new class extends Component {
                         </form>
                     @else
                         <div class="flex gap-2">
-                            <flux:button size="xs" variant="ghost" wire:click="$set('replyTo', {{ $comment->id }})">{{ __('Reply') }}</flux:button>
+                            <flux:button size="xs" variant="ghost" wire:click="$set('replyTo', '{{ $comment->id }}')">{{ __('Reply') }}</flux:button>
                             @unless ($comment->resolved_at)
-                                <flux:button size="xs" variant="ghost" wire:click="resolve({{ $comment->id }})">{{ __('Resolve') }}</flux:button>
+                                <flux:button size="xs" variant="ghost" wire:click="resolve('{{ $comment->id }}')">{{ __('Resolve') }}</flux:button>
                             @endunless
                         </div>
                     @endif

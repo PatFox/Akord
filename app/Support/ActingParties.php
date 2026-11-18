@@ -47,7 +47,7 @@ final class ActingParties
     /**
      * @return bool false when the user cannot act for that party here
      */
-    public static function choose(User $user, Contract $contract, int $partyId): bool
+    public static function choose(User $user, Contract $contract, string $partyId): bool
     {
         if (! self::options($user, $contract)->contains(fn (array $option) => $option['party']->id === $partyId)) {
             return false;

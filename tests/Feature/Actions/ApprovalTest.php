@@ -16,7 +16,7 @@ beforeEach(function () {
     $this->s->approve($this->s->alpha, $this->step);
 });
 
-function alphaApprovalCounts(Scenario $s, int $stepId): bool
+function alphaApprovalCounts(Scenario $s, string $stepId): bool
 {
     return ! collect($s->readiness()->outstanding)
         ->contains(fn (array $o) => $o['step_id'] === $stepId && $o['party_id'] === $s->alpha->party?->id);

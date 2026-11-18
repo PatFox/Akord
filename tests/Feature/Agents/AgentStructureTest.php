@@ -19,7 +19,7 @@ beforeEach(function () {
 /**
  * @return list<string> titles of the phase's active steps, in order
  */
-function titlesIn(int $phaseId): array
+function titlesIn(string $phaseId): array
 {
     return Step::query()->with('currentRevision')->where('phase_id', $phaseId)->active()->orderBy('position')->get()
         ->map(fn (Step $step) => $step->currentRevision->title)->all();
@@ -53,7 +53,7 @@ test('an editor agent adds a phase and steps, moves and archives them over REST'
         ->assertJsonPath('data.revision.author.party', $this->agent->party->name)
         ->assertJsonPath('data.revision.author.user', null)
         ->json('data.id');
-    $monitor = $this->agent->api('POST', "contracts/{$this->id}/phases/{$phase}/steps", ['title' => 'Monitor', 'description_md' => '', 'after_step_id' => 0])
+    $monitor = $this->agent->api('POST', "contracts/{$this->id}/phases/{$phase}/steps", ['title' => 'Monitor', 'description_md' => '', 'after_step_id' => 'start'])
         ->assertCreated()->json('data.id');
 
     $this->agent->api('POST', "contracts/{$this->id}/steps/{$this->step->id}/move", ['phase_id' => $phase, 'after_step_id' => $monitor])->assertOk()
@@ -76,7 +76,7 @@ test('the same operations work as MCP tools', function () {
     $deploy = toolData($text)['id'];
     expect($error)->toBeFalse();
 
-    expect($this->agent->tool('move_step', ['contract_id' => $this->id, 'step_id' => $this->step->id, 'phase_id' => $phase, 'after_step_id' => 0])[0])->toBeFalse()
+    expect($this->agent->tool('move_step', ['contract_id' => $this->id, 'step_id' => $this->step->id, 'phase_id' => $phase, 'after_step_id' => 'start'])[0])->toBeFalse()
         ->and($this->agent->tool('archive_step', ['contract_id' => $this->id, 'step_id' => $deploy])[0])->toBeFalse()
         ->and(titlesIn($phase))->toBe(['Build the API']);
 });
@@ -93,14 +93,14 @@ test('structure changes are refused by role, token ability, scope and the lock',
     $this->agent->api('POST', "contracts/{$this->id}/phases/{$otherPhase->id}/steps", ['title' => 'X', 'description_md' => ''])->assertNotFound();
     $this->agent->api('POST', "contracts/{$other->id}/phases", ['title' => 'X'])->assertNotFound();
     $this->agent->api('POST', $phaseUri, ['description_md' => ''])->assertUnprocessable();
-    $this->agent->api('POST', $phaseUri, ['title' => 'X', 'description_md' => '', 'after_step_id' => 999999])->assertUnprocessable();
+    $this->agent->api('POST', $phaseUri, ['title' => 'X', 'description_md' => '', 'after_step_id' => 'zzzzzzzzzzzzzzzz'])->assertUnprocessable();
     [$error, $text] = $commenter->tool('archive_step', ['contract_id' => $this->id, 'step_id' => $this->step->id]);
     expect($error)->toBeTrue()->and($text)->toStartWith('403: ');
 
     agreeContract($this->s);
     $this->agent->api('POST', $phaseUri, ['title' => 'X', 'description_md' => ''])->assertStatus(423);
     $this->agent->api('POST', "contracts/{$this->id}/phases", ['title' => 'X'])->assertStatus(423);
-    $this->agent->api('POST', "contracts/{$this->id}/steps/{$this->step->id}/move", ['after_step_id' => 0])->assertStatus(423);
+    $this->agent->api('POST', "contracts/{$this->id}/steps/{$this->step->id}/move", ['after_step_id' => 'start'])->assertStatus(423);
     $this->agent->api('POST', "contracts/{$this->id}/steps/{$this->step->id}/archive")->assertStatus(423);
 
     expect(titlesIn($this->s->phase->id))->toBe(['Build the API'])

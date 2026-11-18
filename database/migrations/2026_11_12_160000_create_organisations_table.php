@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('organisations', function (Blueprint $table) {
-            $table->id();
+            $table->randomId();
             $table->string('name');
             $table->string('slug')->unique();
             $table->timestamps();
@@ -20,8 +20,8 @@ return new class extends Migration
 
         Schema::create('organisation_user', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('organisation_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('user_id')->constrained()->cascadeOnDelete();
+            $table->foreignRandomId('organisation_id')->constrained()->cascadeOnDelete();
+            $table->foreignRandomId('user_id')->constrained()->cascadeOnDelete();
             $table->string('role', 20);
             $table->timestamps();
 

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\HasRandomId;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Scope;
 use Illuminate\Database\Eloquent\Builder;
@@ -13,10 +14,10 @@ use Laravel\Passport\Client;
 /**
  * An OAuth (MCP) client an owner approved to act as an agent party.
  *
- * @property int $id
- * @property int $party_id
+ * @property string $id
+ * @property string $party_id
  * @property string $oauth_client_id
- * @property int $approved_by
+ * @property string $approved_by
  * @property list<string> $abilities
  * @property Carbon|null $last_used_at
  * @property Carbon|null $revoked_at
@@ -26,6 +27,8 @@ use Laravel\Passport\Client;
 #[Fillable(['party_id', 'oauth_client_id', 'approved_by', 'abilities', 'last_used_at', 'revoked_at'])]
 class AgentConnection extends Model
 {
+    use HasRandomId;
+
     /**
      * @return array<string, string>
      */

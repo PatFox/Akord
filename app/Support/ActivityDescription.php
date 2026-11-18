@@ -65,7 +65,8 @@ final class ActivityDescription
      */
     private static function partyName(array $payload): string
     {
-        $name = Party::query()->whereKey($payload['party_id'] ?? 0)->value('name');
+        $partyId = $payload['party_id'] ?? null;
+        $name = is_string($partyId) ? Party::query()->whereKey($partyId)->value('name') : null;
 
         return is_string($name) ? '“'.$name.'”' : __('a party');
     }

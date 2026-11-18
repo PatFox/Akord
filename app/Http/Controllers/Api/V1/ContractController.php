@@ -22,15 +22,15 @@ class ContractController extends AgentApiController
      */
     public function store(Request $request): JsonResponse
     {
-        $v = $request->validate(['project_id' => ['required', 'integer'], 'title' => ['required', 'string', 'max:200']]);
+        $v = $request->validate(['project_id' => ['required', 'string'], 'title' => ['required', 'string', 'max:200']]);
 
-        return $this->respond($this->api->createContract($this->actor($request), (int) $v['project_id'], $v['title']), 201);
+        return $this->respond($this->api->createContract($this->actor($request), $v['project_id'], $v['title']), 201);
     }
 
     /**
      * GET /api/v1/contracts/{id}[?format=md|json]
      */
-    public function show(Request $request, int $contract): JsonResponse|Response
+    public function show(Request $request, string $contract): JsonResponse|Response
     {
         $format = $request->validate(['format' => ['nullable', 'in:json,md']])['format'] ?? 'json';
 
@@ -44,7 +44,7 @@ class ContractController extends AgentApiController
     /**
      * GET /api/v1/contracts/{id}/status
      */
-    public function status(Request $request, int $contract): JsonResponse
+    public function status(Request $request, string $contract): JsonResponse
     {
         return $this->respond($this->api->status($this->actor($request), $contract));
     }

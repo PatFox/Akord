@@ -44,7 +44,8 @@ test('dragging a step reorders within a phase and moves between phases', functio
     $two = $this->s->step('Two');
     $phaseTwo = app(CreatePhase::class)->handle($this->s->alpha, $this->s->contract, 'Two');
 
-    $page = contractPage($this->s, $this->s->alpha);
+    // Livewire sends this attribute's text unchanged as sortStep's first argument, so it must be the bare id.
+    $page = contractPage($this->s, $this->s->alpha)->assertSeeHtml('wire:sort:item="'.$two->id.'"');
     $page->call('sortStep', $two->id, 0, $this->s->phase->id);
     expect($this->s->phase->steps()->pluck('id')->all())->toBe([$two->id, $one->id]);
 
