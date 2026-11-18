@@ -37,7 +37,7 @@ class AddComment extends AgentTool
             'step_id' => $schema->string()->required(),
             'kind' => $schema->string()->enum(['question', 'suggestion', 'general'])->required(),
             'body_md' => $schema->string()->description('The comment (Markdown).')->required(),
-            'parent_id' => $schema->string()->description('Reply to this comment.'),
+            'parent_id' => $schema->string()->description('Reply to this comment. Threads are one level deep: a reply to a reply joins its top-level comment\'s thread.'),
         ];
     }
 }

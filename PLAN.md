@@ -676,6 +676,16 @@ Update with `powershell -ExecutionPolicy Bypass -File $env:LOCALAPPDATA\Akord\ak
   - NUC03 moved to a new, empty MySQL database with this release (§8).
   - Agents must reconnect, because their OAuth clients and tokens were in the old databases.
 
+### Fix: replies to replies were hidden (2026-11-18)
+
+- **Bug:** `AddComment` accepted any comment on the same step as `parent_id`. The step page and `get_step` load top-level comments and their direct replies only, so a reply to a reply was saved, appeared in the activity feed, and was shown nowhere else. Agents hit it by replying to the latest message of a thread. It is present since Phase 4, not caused by Phase 13. `ContractMarkdown::export` never includes comments, by design.
+- **Fix:** threads stay two levels deep.
+  - A reply to a reply joins its thread's top-level comment.
+  - The comment actually answered is kept as `in_reply_to` in the `comment.added` payload, set only when it differs from `parent_id`.
+  - The MCP `parent_id` description and the skill (plugin 1.3.1) say so.
+  - Test: `StepPageTest` "a reply to a reply joins its thread".
+- **NUC03 data:** the two affected comments were moved to their thread's top-level comment: `hv5omyrbhpe9qwjk` to `qnz7iumccc5fn3km`, and `neb5e12tdq5ldwtc` to `2vjp5sv74uf200xk`. Their original parents are still in their events' payload `parent_id`. No comments are nested deeper now. The code fix reaches NUC03 with its next release; until then a new reply to a reply is hidden again and needs the same update.
+
 ### Order of work
 
 Phases 1–13 are done, in order.

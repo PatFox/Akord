@@ -4,6 +4,7 @@ use App\Actions\Comments\AddComment;
 use App\Actions\Steps\ReviseStep;
 use App\Enums\CommentKind;
 use App\Enums\ContractRole;
+use App\Models\ActivityEvent;
 use App\Models\Comment;
 use App\Models\StepRevision;
 use Livewire\Livewire;
@@ -87,4 +88,16 @@ test('people comment, reply and resolve from the page', function () {
 
     expect($question->fresh()?->resolved_at)->not->toBeNull()
         ->and($question->replies()->count())->toBe(1);
+});
+
+test('a reply to a reply joins its thread, so the page shows it', function () {
+    $question = app(AddComment::class)->handle($this->s->beta, $this->step, CommentKind::Question, 'Which status codes?');
+    $answer = app(AddComment::class)->handle($this->s->alpha, $this->step, CommentKind::General, 'See the error step.', $question);
+    $followUp = app(AddComment::class)->handle($this->s->beta, $this->step, CommentKind::General, 'Including 409?', $answer);
+
+    expect($followUp->parent_id)->toBe($question->id)
+        ->and(ActivityEvent::query()->where('subject_id', $followUp->id)->sole()->payload)
+        ->toMatchArray(['parent_id' => $question->id, 'in_reply_to' => $answer->id]);
+
+    stepPage($this, $this->s->alpha)->assertSeeInOrder(['Which status codes?', 'See the error step.', 'Including 409?']);
 });

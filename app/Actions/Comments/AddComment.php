@@ -15,6 +15,10 @@ use App\Support\ContractTransaction;
 
 /**
  * Comments on a step's current revision, optionally replying to a comment on the same step.
+ *
+ * Threads are two levels deep (a comment and its replies), as the step page and get_step show
+ * them. A reply to a reply joins the thread of its top-level comment; the comment it answered
+ * is kept in the activity payload as `in_reply_to`.
  */
 final class AddComment
 {
@@ -27,8 +31,15 @@ final class AddComment
                 throw new InvalidActionException('Archived steps cannot be commented on.');
             }
 
+            $answered = null;
+
             if ($parent !== null) {
-                $parent = Comment::query()->whereKey($parent->id)->where('step_id', $step->id)->firstOrFail();
+                $answered = Comment::query()->whereKey($parent->id)->where('step_id', $step->id)->firstOrFail();
+                $parent = $answered;
+
+                while ($parent->parent_id !== null) {
+                    $parent = Comment::query()->whereKey($parent->parent_id)->where('step_id', $step->id)->firstOrFail();
+                }
             }
 
             $comment = Comment::query()->create([
@@ -41,7 +52,13 @@ final class AddComment
                 'body_md' => $bodyMd,
             ]);
 
-            $log->record('comment.added', $comment, ['step_id' => $step->id, 'kind' => $kind->value, 'parent_id' => $parent?->id]);
+            $payload = ['step_id' => $step->id, 'kind' => $kind->value, 'parent_id' => $parent?->id];
+
+            if ($answered !== null && $parent !== $answered) {
+                $payload['in_reply_to'] = $answered->id;
+            }
+
+            $log->record('comment.added', $comment, $payload);
 
             return $comment;
         });
