@@ -3,6 +3,7 @@
 use App\Enums\ContractRole;
 use App\Models\Party;
 use App\Models\User;
+use Livewire\Livewire;
 use Tests\Support\Scenario;
 
 beforeEach(function () {
@@ -20,7 +21,6 @@ function pageUrls(object $t): array
         'project' => route('projects.show', ['organisation' => $t->organisation, 'project' => $t->project]),
         'contract' => route('contracts.show', $t->s->contract),
         'settings' => route('contracts.settings', $t->s->contract),
-        'step' => route('steps.show', ['contract' => $t->s->contract, 'step' => $t->step]),
     ];
 }
 
@@ -34,29 +34,28 @@ test('people outside the contract get not-found on every page, even in another o
     Party::factory()->create()->users()->attach($outsider);
 
     expect(statuses($this, $outsider))->toBe([
-        'organisation' => 404, 'parties' => 404, 'project' => 404, 'contract' => 404, 'settings' => 404, 'step' => 404,
+        'organisation' => 404, 'parties' => 404, 'project' => 404, 'contract' => 404, 'settings' => 404,
     ]);
 });
 
 test('members see the contract pages but not the owner screens', function () {
     expect(statuses($this, $this->s->beta->user))->toBe([
-        'organisation' => 200, 'parties' => 403, 'project' => 200, 'contract' => 200, 'settings' => 403, 'step' => 200,
+        'organisation' => 200, 'parties' => 403, 'project' => 200, 'contract' => 200, 'settings' => 403,
     ]);
 });
 
 test('owners see every page', function () {
     expect(statuses($this, $this->s->owner))->toBe([
-        'organisation' => 200, 'parties' => 200, 'project' => 200, 'contract' => 200, 'settings' => 200, 'step' => 200,
+        'organisation' => 200, 'parties' => 200, 'project' => 200, 'contract' => 200, 'settings' => 200,
     ]);
 });
 
 test('a step addressed through another contract is not found', function () {
     $other = Scenario::make();
     $other->party(ContractRole::Viewer);
+    $this->actingAs($this->s->owner);
 
-    $this->actingAs($this->s->owner)
-        ->get(route('steps.show', ['contract' => $other->contract, 'step' => $this->step]))
-        ->assertNotFound();
+    Livewire::test('pages::contracts.step', ['contract' => $other->contract, 'step' => $this->step])->assertNotFound();
 });
 
 test('guests are sent to log in', function () {

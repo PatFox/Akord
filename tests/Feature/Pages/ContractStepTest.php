@@ -15,17 +15,17 @@ beforeEach(function () {
     $this->step = $this->s->step('Build the API', 'Original text.');
 });
 
-function stepPage(object $t, $actor)
+function stepItem(object $t, $actor)
 {
     test()->actingAs($actor->user);
 
-    return Livewire::test('pages::steps.show', ['contract' => $t->s->contract, 'step' => $t->step]);
+    return Livewire::test('pages::contracts.step', ['contract' => $t->s->contract, 'step' => $t->step]);
 }
 
 test('saving over someone else\'s edit shows a conflict and keeps the draft; saving again applies it on top', function () {
     $otherEditor = $this->s->party(ContractRole::Editor);
-    $mine = stepPage($this, $this->s->alpha)->call('edit')->set('description', 'My wording.');
-    stepPage($this, $otherEditor)->call('edit')->set('description', 'Their wording.')->call('save');
+    $mine = stepItem($this, $this->s->alpha)->call('edit')->set('description', 'My wording.');
+    stepItem($this, $otherEditor)->call('edit')->set('description', 'Their wording.')->call('save')->assertDispatched('step-updated');
 
     $mine->call('save')
         ->assertSee('This step changed while you were editing')
@@ -38,26 +38,47 @@ test('saving over someone else\'s edit shows a conflict and keeps the draft; sav
         ->toBe(['number' => 3, 'description_md' => 'My wording.']);
 });
 
+test('an editor sees the conflict as soon as the contract page reports someone else\'s save', function () {
+    $otherEditor = $this->s->party(ContractRole::Editor);
+    $page = stepItem($this, $this->s->alpha)->call('edit')->set('description', 'My draft.');
+
+    app(ReviseStep::class)->handle($otherEditor, $this->step, 1, 'Build the API', 'Their change.');
+    $page->dispatch('step-refresh.'.$this->step->id)
+        ->assertSee('This step changed while you were editing')
+        ->assertSet('description', 'My draft.');
+});
+
+test('a required approver approves and withdraws with their own tick; other ticks are not clickable', function () {
+    $page = stepItem($this, $this->s->beta)->assertSeeHtml('data-test="my-tick"');
+
+    $page->call('approve', 1)->assertDispatched('step-updated');
+    expect($this->s->readiness()->outstanding)->toBe([['step_id' => $this->step->id, 'party_id' => $this->s->alpha->party->id]]);
+
+    $page->call('withdrawApproval');
+    expect($this->s->readiness()->outstanding)->toHaveCount(2);
+
+    // Approving what is no longer on screen is refused.
+    app(ReviseStep::class)->handle($this->s->alpha, $this->step, 1, 'Build the API', 'Changed.');
+    $page->call('approve', 1);
+    expect($this->s->readiness()->outstanding)->toHaveCount(2);
+
+    stepItem($this, $this->s->party(ContractRole::Viewer))->assertDontSeeHtml('data-test="my-tick"');
+    stepItem($this, $this->s->party(ContractRole::Commenter))->assertDontSeeHtml('data-test="my-tick"');
+});
+
 test('a party whose approval was cancelled by an edit is told so', function () {
     $this->s->approve($this->s->beta, $this->step);
     app(ReviseStep::class)->handle($this->s->alpha, $this->step, 1, 'Build the API', 'Changed scope.');
 
-    stepPage($this, $this->s->beta)->assertSee('Your approval was cancelled')->assertSee('Approve revision 2');
+    stepItem($this, $this->s->beta)->assertSee('The step changed after your party approved it')->assertSee('approve revision 2');
 });
 
-test('approving from the page approves the revision on screen', function () {
-    stepPage($this, $this->s->beta)->call('approve', 1)->assertSee('You approved');
-
-    expect($this->s->readiness()->outstanding)->toBe([['step_id' => $this->step->id, 'party_id' => $this->s->alpha->party->id]]);
-});
-
-test('descriptions and comments render Markdown without raw HTML or script links', function () {
+test('descriptions and comments render Markdown on the contract page without raw HTML or script links', function () {
     app(ReviseStep::class)->handle($this->s->alpha, $this->step, 1, 'Build the API', "**Bold** <script>alert('x')</script> [click](javascript:alert(1)) <img src=x onerror=alert(1)>");
     app(AddComment::class)->handle($this->s->beta, $this->step, CommentKind::Question, '<iframe src="https://evil.test"></iframe> fine?');
 
-    $html = $this->actingAs($this->s->beta->user)->get(route('steps.show', ['contract' => $this->s->contract, 'step' => $this->step]))->getContent();
+    $html = $this->actingAs($this->s->beta->user)->get(route('contracts.show', $this->s->contract))->assertOk()->getContent();
 
-    // The revision diff shows the Markdown source as escaped text, so look for live markup, not words.
     expect($html)->toContain('<strong>Bold</strong>')
         ->not->toContain("<script>alert('x')")
         ->not->toContain('href="javascript:')
@@ -68,7 +89,7 @@ test('descriptions and comments render Markdown without raw HTML or script links
 test('the history diff highlights changed words and escapes revision text', function () {
     app(ReviseStep::class)->handle($this->s->alpha, $this->step, 1, 'Build the <b>API</b>', 'Original text, extended.');
 
-    $page = stepPage($this, $this->s->alpha)->set('compareFrom', 1)->set('compareTo', 2);
+    $page = stepItem($this, $this->s->alpha)->call('toggleHistory')->assertSee('Revision 2');
     $diff = $page->instance()->diffHtml;
 
     expect($diff)->toContain('extended')
@@ -77,20 +98,20 @@ test('the history diff highlights changed words and escapes revision text', func
         ->not->toContain('<b>API</b>');
 });
 
-test('people comment, reply and resolve from the page', function () {
-    $page = stepPage($this, $this->s->beta)
+test('people comment, reply and resolve from the step', function () {
+    $page = stepItem($this, $this->s->beta)->assertSee('0 comments')
         ->set('commentKind', 'question')->set('commentBody', 'Which status codes?')->call('addComment');
     $question = Comment::query()->firstOrFail();
 
     $page->set('replyTo', $question->id)->set('replyBody', 'See the error step.')->call('reply')
         ->call('resolve', $question->id)
-        ->assertSee('Which status codes?')->assertSee('See the error step.')->assertSee('Resolved');
+        ->assertSee('2 comments')->assertSee('Which status codes?')->assertSee('See the error step.')->assertSee('Resolved');
 
     expect($question->fresh()?->resolved_at)->not->toBeNull()
         ->and($question->replies()->count())->toBe(1);
 });
 
-test('a reply to a reply joins its thread, so the page shows it', function () {
+test('a reply to a reply joins its thread, so the step shows it', function () {
     // A second apart: replies are ordered by created_at, which MySQL stores to the second.
     $question = app(AddComment::class)->handle($this->s->beta, $this->step, CommentKind::Question, 'Which status codes?');
     $this->travel(1)->seconds();
@@ -102,5 +123,13 @@ test('a reply to a reply joins its thread, so the page shows it', function () {
         ->and(ActivityEvent::query()->where('subject_id', $followUp->id)->sole()->payload)
         ->toMatchArray(['parent_id' => $question->id, 'in_reply_to' => $answer->id]);
 
-    stepPage($this, $this->s->alpha)->assertSeeInOrder(['Which status codes?', 'See the error step.', 'Including 409?']);
+    stepItem($this, $this->s->alpha)->assertSeeInOrder(['Which status codes?', 'See the error step.', 'Including 409?']);
+});
+
+test('editors archive a step from its menu; viewers get no edit or archive actions', function () {
+    stepItem($this, $this->s->party(ContractRole::Viewer))->assertDontSee('Archive')->call('archive');
+    expect($this->step->fresh()?->isArchived())->toBeFalse();
+
+    stepItem($this, $this->s->alpha)->assertSee('Archive')->call('archive')->assertDispatched('step-updated');
+    expect($this->step->fresh()?->isArchived())->toBeTrue();
 });

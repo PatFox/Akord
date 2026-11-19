@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Approvals\ApproveStep;
+use App\Actions\Contracts\SetRequiredApprover;
 use App\Actions\Steps\CreateStep;
 use App\Actions\Steps\ReviseStep;
 use App\Enums\ContractRole;
@@ -106,15 +107,15 @@ test('an approval elsewhere updates the page without holding sign-off', function
     expect(ContractSignoff::query()->count())->toBe(1);
 });
 
-test('an editor sees the conflict as soon as someone else saves the step', function () {
-    $otherEditor = $this->s->party(ContractRole::Editor);
+test('the contract page passes an activity on to the step it concerns, or to every step', function () {
     $this->actingAs($this->s->alpha->user);
-    $page = Livewire::test('pages::steps.show', ['contract' => $this->s->contract, 'step' => $this->step])
-        ->call('edit')->set('description', 'My draft.');
+    $page = Livewire::test('pages::contracts.show', ['contract' => $this->s->contract]);
     $opened = lastActivityPosition($this->s);
 
-    app(ReviseStep::class)->handle($otherEditor, $this->step, 1, 'Build the API', 'Their change.');
-    deliverActivitySince($page, $this->s, $opened)
-        ->assertSee('This step changed while you were editing')
-        ->assertSet('description', 'My draft.');
+    app(ApproveStep::class)->handle($this->s->beta, $this->step, 1);
+    deliverActivitySince($page, $this->s, $opened)->assertDispatched('step-refresh.'.$this->step->id)->assertNotDispatched('steps-refresh');
+
+    $opened = lastActivityPosition($this->s);
+    app(SetRequiredApprover::class)->handle($this->s->ownerActor(), $this->s->contract, $this->s->beta->party, false);
+    deliverActivitySince($page, $this->s, $opened)->assertDispatched('steps-refresh');
 });

@@ -47,23 +47,7 @@ final class ContractReadiness
             ->pluck('current.content_hash', 'steps.id')
             ->all();
 
-        $approved = [];
-        if ($requiredPartyIds !== [] && $hashByStep !== []) {
-            DB::table('approvals')
-                ->join('step_revisions as approved', 'approved.id', '=', 'approvals.step_revision_id')
-                ->join('steps', 'steps.id', '=', 'approvals.step_id')
-                ->join('step_revisions as current', 'current.id', '=', 'steps.current_revision_id')
-                ->whereIn('approvals.step_id', array_keys($hashByStep))
-                ->whereIn('approvals.party_id', $requiredPartyIds)
-                ->whereNull('approvals.withdrawn_at')
-                ->whereColumn('approved.content_hash', 'current.content_hash')
-                ->select('approvals.step_id', 'approvals.party_id')
-                ->get()
-                ->each(function (object $row) use (&$approved): void {
-                    /** @var object{step_id: string, party_id: string} $row */
-                    $approved[$row->step_id.':'.$row->party_id] = true;
-                });
-        }
+        $approved = self::countingApprovals(array_keys($hashByStep), $requiredPartyIds);
 
         $outstanding = [];
         foreach (array_keys($hashByStep) as $stepId) {
@@ -95,5 +79,38 @@ final class ContractReadiness
         };
 
         return new ReadinessReport($state, $fingerprint, count($hashByStep), $requiredPartyIds, $outstanding, $signedOff);
+    }
+
+    /**
+     * The approvals that count among these steps and parties: active, and for a revision with the step's current
+     * content hash (D11).
+     *
+     * @param  list<string>  $stepIds
+     * @param  list<string>  $partyIds
+     * @return array<string, true> "stepId:partyId"
+     */
+    public static function countingApprovals(array $stepIds, array $partyIds): array
+    {
+        if ($stepIds === [] || $partyIds === []) {
+            return [];
+        }
+
+        $approved = [];
+        DB::table('approvals')
+            ->join('step_revisions as approved', 'approved.id', '=', 'approvals.step_revision_id')
+            ->join('steps', 'steps.id', '=', 'approvals.step_id')
+            ->join('step_revisions as current', 'current.id', '=', 'steps.current_revision_id')
+            ->whereIn('approvals.step_id', $stepIds)
+            ->whereIn('approvals.party_id', $partyIds)
+            ->whereNull('approvals.withdrawn_at')
+            ->whereColumn('approved.content_hash', 'current.content_hash')
+            ->select('approvals.step_id', 'approvals.party_id')
+            ->get()
+            ->each(function (object $row) use (&$approved): void {
+                /** @var object{step_id: string, party_id: string} $row */
+                $approved[$row->step_id.':'.$row->party_id] = true;
+            });
+
+        return $approved;
     }
 }

@@ -26,9 +26,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     Route::livewire('contracts/{contract}', 'pages::contracts.show')->name('contracts.show');
     Route::livewire('contracts/{contract}/settings', 'pages::contracts.settings')->name('contracts.settings');
-    Route::livewire('contracts/{contract}/steps/{step}', 'pages::steps.show')
-        ->scopeBindings()
-        ->name('steps.show');
 });
 
 require __DIR__.'/settings.php';

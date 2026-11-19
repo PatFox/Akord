@@ -58,6 +58,32 @@ test('dragging a step reorders within a phase and moves between phases', functio
         ->and($this->s->phase->steps()->pluck('id')->all())->toBe([$two->id]);
 });
 
+test('editors rename a phase by clicking its title; Escape keeps the old title', function () {
+    $page = contractPage($this->s, $this->s->alpha)->assertSeeHtml('data-test="phase-title"')
+        ->call('startRenaming', $this->s->phase->id)->set('phaseTitle', 'Discarded')->call('cancelRenaming');
+    expect($this->s->phase->fresh()?->title)->toBe('Phase one');
+
+    $page->call('startRenaming', $this->s->phase->id)->set('phaseTitle', 'Discovery')->call('renamePhase')
+        ->assertSet('renamingPhase', null)->assertSee('Discovery');
+    expect($this->s->phase->fresh()?->title)->toBe('Discovery');
+
+    // Leaving the field after Enter already saved does nothing more.
+    $page->call('renamePhase');
+    expect($this->s->activityCount('phase.renamed'))->toBe(1);
+});
+
+test('each phase shows how many steps are approved, overall and per required party', function () {
+    $one = $this->s->step('One');
+    $two = $this->s->step('Two');
+    $this->s->approveAll($one);
+    $this->s->approve($this->s->alpha, $two);
+
+    $counts = contractPage($this->s, $this->s->alpha)->assertSee('1 of 2 approved')->instance()->stageCounts[$this->s->phase->id];
+
+    expect($counts['byParty'])->toEqual([$this->s->alpha->party->id => 2, $this->s->beta->party->id => 1])
+        ->and($counts['approved'])->toBe(1);
+});
+
 test('a person in two parties chooses which one they act for, but only among their own', function () {
     $user = $this->s->alpha->user;
     $second = Party::factory()->for($this->s->organisation)->create(['name' => 'Second']);

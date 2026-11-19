@@ -16,7 +16,7 @@ use App\Support\ContractTransaction;
 /**
  * Comments on a step's current revision, optionally replying to a comment on the same step.
  *
- * Threads are two levels deep (a comment and its replies), as the step page and get_step show
+ * Threads are two levels deep (a comment and its replies), as the contract page and get_step show
  * them. A reply to a reply joins the thread of its top-level comment; the comment it answered
  * is kept in the activity payload as `in_reply_to`.
  */

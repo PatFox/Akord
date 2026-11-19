@@ -50,7 +50,7 @@ test('a comment notifies the other people on the contract, not the author, unatt
 
     expect(notifiedFor('comment.added'))->toEqualCanonicalizing([$this->s->alpha->user->id, $this->gamma->user->id]);
     Notification::assertSentTo($this->s->alpha->user, ContractActivity::class, fn (ContractActivity $n, array $channels) => $channels === ['database', 'mail']
-        && $n->toArray($this->s->alpha->user)['url'] === route('steps.show', [$this->s->contract, $step]));
+        && $n->toArray($this->s->alpha->user)['url'] === route('contracts.show', $this->s->contract).'#step-'.$step->id);
 });
 
 test('a content edit tells the parties whose approval it cancelled; a spacing-only edit tells nobody', function () {
@@ -138,7 +138,7 @@ test('emails escape participants’ text so a title cannot add a link', function
 
     expect($html)->not->toContain('href="https://evil.example"')
         ->and($html)->toContain('Click here')
-        ->and($html)->toContain(route('steps.show', [$this->s->contract, $step]));
+        ->and($html)->toContain(route('contracts.show', $this->s->contract).'#step-'.$step->id);
 });
 
 test('the notifications page lists, opens and marks notifications read', function () {
@@ -156,7 +156,7 @@ test('the notifications page lists, opens and marks notifications read', functio
 
     Livewire::actingAs($alice)->test('pages::notifications.index')
         ->call('open', $notification->id)
-        ->assertRedirect(route('steps.show', [$this->s->contract, $step]));
+        ->assertRedirect(route('contracts.show', $this->s->contract).'#step-'.$step->id);
 
     expect($notification->fresh()->read_at)->not->toBeNull();
 
