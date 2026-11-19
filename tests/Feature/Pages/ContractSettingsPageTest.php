@@ -1,6 +1,5 @@
 <?php
 
-use App\Actions\Contracts\SignOffContract;
 use App\Enums\ContractRole;
 use App\Models\ContractParty;
 use App\Models\Party;
@@ -48,15 +47,4 @@ test('the human sign-off rule is saved from the switch', function () {
     settingsPage($this->s)->set('requireHumanSignoff', true);
 
     expect($this->s->contract->fresh()?->require_human_signoff)->toBeTrue();
-});
-
-test('an agreed contract continues as a new version from its settings', function () {
-    $this->s->approveAll($this->s->step());
-    $fingerprint = $this->s->readiness()->fingerprint;
-    app(SignOffContract::class)->handle($this->s->alpha, $this->s->contract, $fingerprint);
-    app(SignOffContract::class)->handle($this->s->beta, $this->s->contract, $fingerprint);
-
-    settingsPage($this->s)->call('startNewVersion')->assertRedirect();
-
-    expect($this->s->contract->nextVersion()->value('version'))->toBe(2);
 });

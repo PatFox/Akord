@@ -6,6 +6,8 @@ use App\Actions\Comments\AddComment;
 use App\Actions\Comments\ResolveComment;
 use App\Actions\Contracts\AttachParty;
 use App\Actions\Contracts\ContractReadiness;
+use App\Actions\Contracts\InviteToContract;
+use App\Actions\Contracts\SetContractStatus;
 use App\Actions\Contracts\SetRequiredApprover;
 use App\Actions\Contracts\SignOffContract;
 use App\Actions\Contracts\StartNewVersion;
@@ -21,11 +23,13 @@ use App\Actions\Steps\ReviseStep;
 use App\Enums\CommentKind;
 use App\Enums\ContractRole;
 use App\Enums\ContractState;
+use App\Enums\ContractStatus;
 use App\Models\ActivityEvent;
 use App\Models\Approval;
 use App\Models\Comment;
 use App\Models\ContractSignoff;
 use App\Models\Step;
+use Illuminate\Support\Facades\Mail;
 use Tests\Support\Scenario;
 
 beforeEach(function () {
@@ -107,4 +111,56 @@ test('a version can be continued once, only when agreed, and only by an owner', 
 
     expect(status(fn () => app(StartNewVersion::class)->handle($this->s->ownerActor(), $this->s->contract)))->toBe(422)
         ->and(status(fn () => app(StartNewVersion::class)->handle($this->s->ownerActor(), $next)))->toBe(422);
+});
+
+test('every write to a closed version is locked until it is reopened; invitations still work', function (string $write) {
+    // Fixture: the same contract before agreement, then cancelled.
+    $this->s->contract->forceFill(['agreed_at' => null, 'agreed_fingerprint' => null])->save();
+    app(SetContractStatus::class)->handle($this->s->alpha, $this->s->contract, ContractStatus::Cancelled);
+    Mail::fake();
+
+    expect(attemptWrite($write, $this))->toBe(423)
+        ->and(status(fn () => app(InviteToContract::class)->handle($this->s->ownerActor(), $this->s->contract, $this->s->beta->party, 'late@example.com')))->toBe(200);
+})->with([
+    'create phase', 'rename phase', 'reorder phases', 'create step', 'revise step', 'reorder steps',
+    'move step', 'archive step', 'add comment', 'resolve comment', 'approve step', 'withdraw approval',
+    'attach party', 'set required approver', 'sign off', 'withdraw sign-off',
+]);
+
+test('closing and reopening keeps approvals and sign-offs and records only the status changes', function () {
+    $s = Scenario::make();
+    $s->approveAll($s->step());
+    $fingerprint = $s->readiness()->fingerprint;
+    app(SignOffContract::class)->handle($s->alpha, $s->contract, $fingerprint);
+    $events = $s->contract->activityEvents()->count();
+
+    app(SetContractStatus::class)->handle($s->alpha, $s->contract, ContractStatus::Complete);
+    expect(status(fn () => app(SignOffContract::class)->handle($s->beta, $s->contract, $fingerprint)))->toBe(423);
+
+    app(SetContractStatus::class)->handle($s->alpha, $s->contract, ContractStatus::Open);
+
+    // toEqual: MySQL's JSON column stores payload keys in its own order.
+    expect($s->contract->activityEvents()->orderBy('position')->skip($events)->take(10)->get()->map(fn (ActivityEvent $e) => [$e->type, $e->payload])->all())
+        ->toEqual([['contract.status_changed', ['from' => 'open', 'to' => 'complete']], ['contract.status_changed', ['from' => 'complete', 'to' => 'open']]])
+        ->and($s->readiness()->signedOffPartyIds)->toBe([$s->alpha->party?->id]);
+
+    app(SignOffContract::class)->handle($s->beta, $s->contract, $fingerprint);
+    expect($s->contract->fresh()?->isAgreed())->toBeTrue();
+});
+
+test('the status changes with the edit ability, on agreed versions too, only on the latest version, and only once', function () {
+    $readOnlyAgent = $this->s->party(ContractRole::Editor, agent: true, abilities: ['read']);
+
+    expect(status(fn () => app(SetContractStatus::class)->handle($this->s->beta, $this->s->contract, ContractStatus::Complete)))->toBe(403)
+        ->and(status(fn () => app(SetContractStatus::class)->handle($readOnlyAgent, $this->s->contract, ContractStatus::Complete)))->toBe(403);
+
+    app(SetContractStatus::class)->handle($this->s->alpha, $this->s->contract, ContractStatus::Complete);
+    app(SetContractStatus::class)->handle($this->s->alpha, $this->s->contract, ContractStatus::Complete);
+    expect($this->s->activityCount('contract.status_changed'))->toBe(1);
+
+    $next = app(StartNewVersion::class)->handle($this->s->ownerActor(), $this->s->contract);
+
+    expect($next->fresh()?->status)->toBe(ContractStatus::Open)
+        ->and($this->s->contract->fresh()?->status)->toBe(ContractStatus::Complete)
+        ->and(status(fn () => app(SetContractStatus::class)->handle($this->s->alpha, $this->s->contract, ContractStatus::Open)))->toBe(422);
 });

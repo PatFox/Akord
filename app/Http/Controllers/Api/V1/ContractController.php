@@ -2,18 +2,23 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Enums\ContractStatus;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Validation\Rule;
 
 class ContractController extends AgentApiController
 {
     /**
-     * GET /api/v1/contracts: contracts this agent's party is attached to.
+     * GET /api/v1/contracts[?status[]=open&status[]=complete]: contracts this agent's party is attached to,
+     * open ones only unless statuses are given (D14).
      */
     public function index(Request $request): JsonResponse
     {
-        return $this->respond($this->api->listContracts($this->actor($request)));
+        $v = $request->validate(['status' => ['sometimes', 'array'], 'status.*' => ['string', Rule::enum(ContractStatus::class)]]);
+
+        return $this->respond($this->api->listContracts($this->actor($request), array_values(array_map(ContractStatus::from(...), $v['status'] ?? []))));
     }
 
     /**
@@ -39,6 +44,17 @@ class ContractController extends AgentApiController
         }
 
         return $this->respond($this->api->contract($this->actor($request), $contract));
+    }
+
+    /**
+     * PATCH /api/v1/contracts/{id} {status}: open, complete or cancelled (D14). Needs the 'edit' ability and an
+     * editor party; 422 on a superseded version.
+     */
+    public function update(Request $request, string $contract): JsonResponse
+    {
+        $v = $request->validate(['status' => ['required', 'string', Rule::enum(ContractStatus::class)]]);
+
+        return $this->respond($this->api->setStatus($this->actor($request), $contract, ContractStatus::from($v['status'])));
     }
 
     /**

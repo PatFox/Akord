@@ -28,6 +28,7 @@ Route::prefix('v1')->group(function () {
         Route::get('contracts', [ContractController::class, 'index']);
         Route::post('contracts', [ContractController::class, 'store']);
         Route::get('contracts/{contract}', [ContractController::class, 'show'])->where('contract', RandomId::PATTERN);
+        Route::patch('contracts/{contract}', [ContractController::class, 'update'])->where('contract', RandomId::PATTERN);
         Route::get('contracts/{contract}/status', [ContractController::class, 'status'])->where('contract', RandomId::PATTERN);
         Route::post('contracts/{contract}/signoffs', [SignoffController::class, 'store'])->where('contract', RandomId::PATTERN);
         Route::delete('contracts/{contract}/signoffs/mine', [SignoffController::class, 'destroyMine'])->where('contract', RandomId::PATTERN);

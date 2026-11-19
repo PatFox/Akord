@@ -39,7 +39,7 @@ final class ResendInvitation
             $log->record('invitation.resent', $invitation, ['party_id' => $invitation->party_id]);
 
             return [$invitation, $token];
-        }, allowWhenAgreed: true);
+        }, allowWhenLocked: true);
 
         Mail::to($invitation->email)->send(new InvitationMail($invitation, $token));
 

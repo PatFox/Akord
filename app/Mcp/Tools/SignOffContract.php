@@ -12,7 +12,7 @@ use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 
 #[Name('sign_off_contract')]
-#[Description('Sign off the whole contract for your party. Pass the fingerprint from get_contract_status that you reviewed. 409 if the contract changed since, 422 if not ready, 423 if already agreed, 403 if your party may not sign off.')]
+#[Description('Sign off the whole contract for your party. Pass the fingerprint from get_contract_status that you reviewed. 409 if the contract changed since, 422 if not ready, 423 if already agreed or not open, 403 if your party may not sign off.')]
 class SignOffContract extends AgentTool
 {
     public function handle(Request $request): Response

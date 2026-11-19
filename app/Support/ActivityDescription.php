@@ -51,6 +51,12 @@ final class ActivityDescription
             'contract.agreed' => __('The contract was agreed'),
             'contract.created' => __(':actor created the contract', compact('actor')),
             'contract.version_started' => __(':actor started a new version', compact('actor')),
+            'contract.status_changed' => match ($payload['to'] ?? null) {
+                'open' => __(':actor reopened the contract', compact('actor')),
+                'complete' => __(':actor marked the contract complete', compact('actor')),
+                'cancelled' => __(':actor marked the contract cancelled', compact('actor')),
+                default => __(':actor changed the contract status', compact('actor')),
+            },
             'invitation.sent' => __(':actor invited someone to :party', ['actor' => $actor, 'party' => self::partyName($payload)]),
             'invitation.resent' => __(':actor resent an invitation to :party', ['actor' => $actor, 'party' => self::partyName($payload)]),
             'invitation.cancelled' => __(':actor cancelled an invitation to :party', ['actor' => $actor, 'party' => self::partyName($payload)]),

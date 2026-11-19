@@ -119,3 +119,19 @@ test('the activity feed pages forward from a cursor in commit order', function (
         ->and($next['next_cursor'])->toBeGreaterThan($first['next_cursor'])
         ->and($next['events'][0]['content']['description'])->toContain('edited “Build the API”');
 });
+
+test('agents list only open contracts unless they ask, and close and reopen them over the API', function () {
+    $this->agent->api('PATCH', "contracts/{$this->id}", ['status' => 'cancelled'])->assertOk()->assertJsonPath('data.status', 'cancelled');
+
+    $this->agent->api('GET', 'contracts')->assertOk()->assertJsonPath('data', []);
+    $this->agent->api('GET', 'contracts?status[]=cancelled&status[]=open')->assertOk()
+        ->assertJsonPath('data.0.id', $this->id)->assertJsonPath('data.0.status', 'cancelled');
+    $this->agent->api('GET', 'contracts?status[]=archived')->assertUnprocessable();
+    $this->agent->api('PATCH', "contracts/{$this->id}", ['status' => 'archived'])->assertUnprocessable();
+    $this->agent->api('PUT', "contracts/{$this->id}/steps/{$this->step->id}", [
+        'base_revision' => 1, 'title' => 'Build the API', 'description_md' => 'While closed.',
+    ])->assertStatus(423);
+
+    $this->agent->api('PATCH', "contracts/{$this->id}", ['status' => 'open'])->assertOk()->assertJsonPath('data.status', 'open');
+    $this->agent->api('GET', 'contracts')->assertOk()->assertJsonPath('data.0.status', 'open');
+});

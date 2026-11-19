@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\DB;
  *    all writes to a contract are serialised in one lock order (no deadlocks), and on
  *    MySQL REPEATABLE READ every later plain read sees everything committed before the
  *    lock. Callers must therefore re-read related rows inside $work.
- * 2. Visibility (404), the actor's ability (403), then the lock guard (423).
+ * 2. Visibility (404), the actor's ability (403), then the lock guard (423): agreed or not open.
  * 3. Run $work, then record readiness transitions and sequence activity after commit.
  */
 final class ContractTransaction
@@ -31,15 +31,15 @@ final class ContractTransaction
         Actor $actor,
         ContractAbility $ability,
         callable $work,
-        bool $allowWhenAgreed = false,
+        bool $allowWhenLocked = false,
     ): mixed {
-        return DB::transaction(function () use ($contract, $actor, $ability, $work, $allowWhenAgreed): mixed {
+        return DB::transaction(function () use ($contract, $actor, $ability, $work, $allowWhenLocked): mixed {
             $locked = Contract::query()->lockForUpdate()->whereKey($contract->getKey())->firstOrFail();
 
             ContractAccess::authorize($actor, $locked, $ability);
 
-            if ($locked->isAgreed() && ! $allowWhenAgreed) {
-                throw new ContractLockedException;
+            if ($locked->isLocked() && ! $allowWhenLocked) {
+                throw ContractLockedException::for($locked);
             }
 
             $log = new ActivityLog($locked, $actor);

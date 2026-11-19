@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Contracts\ContractReadiness;
+use App\Actions\Contracts\SetContractStatus;
 use App\Actions\Contracts\SignOffContract;
 use App\Actions\Contracts\StartNewVersion;
 use App\Actions\Contracts\WithdrawSignOff;
@@ -11,6 +12,7 @@ use App\Actions\Steps\CreateStep;
 use App\Actions\Steps\MoveStep;
 use App\Actions\Steps\ReorderSteps;
 use App\Enums\ContractAbility;
+use App\Enums\ContractStatus;
 use App\Livewire\Concerns\ActsOnContract;
 use App\Livewire\Concerns\RunsActions;
 use App\Models\ActivityEvent;
@@ -23,6 +25,7 @@ use App\Support\ContractAccess;
 use App\Support\RandomId;
 use App\Support\ReadinessReport;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\On;
@@ -117,7 +120,7 @@ new class extends Component {
     #[Computed]
     public function canEdit(): bool
     {
-        return ! $this->contract->isAgreed() && $this->allows(ContractAbility::Edit);
+        return ! $this->contract->isLocked() && $this->allows(ContractAbility::Edit);
     }
 
     #[Computed]
@@ -139,6 +142,29 @@ new class extends Component {
     public function nextVersion(): ?Contract
     {
         return Contract::query()->where('previous_version_id', $this->contract->id)->first();
+    }
+
+    /**
+     * The versions of this contract the user can see, oldest first.
+     *
+     * @return Collection<int, Contract>
+     */
+    #[Computed]
+    public function versions(): Collection
+    {
+        $versions = $this->contract->versions();
+        $visible = Contract::query()->visibleTo(Auth::user())->whereIn('id', $versions->pluck('id'))->pluck('id')->all();
+
+        return $versions->filter(fn (Contract $version) => in_array($version->id, $visible, true))->values();
+    }
+
+    /**
+     * Only the latest version's status can change, by anyone who may edit it apart from the lock (D14).
+     */
+    #[Computed]
+    public function canSetStatus(): bool
+    {
+        return $this->nextVersion === null && $this->allows(ContractAbility::Edit);
     }
 
     /**
@@ -200,6 +226,18 @@ new class extends Component {
         if ($next !== null) {
             $this->redirectRoute('contracts.show', ['contract' => $next], navigate: true);
         }
+    }
+
+    public function setStatus(string $status): void
+    {
+        $to = ContractStatus::tryFrom($status);
+        if ($to === null) {
+            $this->refused(__('Unknown status.'), 422);
+
+            return;
+        }
+
+        $this->attempt(fn () => app(SetContractStatus::class)->handle($this->actor(), $this->contract, $to), __('Status changed.'));
     }
 
     public function addPhase(): void
@@ -291,7 +329,7 @@ new class extends Component {
     {
         // Actions may have changed the contract during this request.
         $this->contract->refresh();
-        unset($this->report, $this->changeDescriptions, $this->phases, $this->requiredParties, $this->approved, $this->archivedCount, $this->canEdit, $this->actingIsRequired, $this->actingHasSignedOff, $this->nextVersion);
+        unset($this->report, $this->changeDescriptions, $this->phases, $this->requiredParties, $this->approved, $this->archivedCount, $this->canEdit, $this->actingIsRequired, $this->actingHasSignedOff, $this->nextVersion, $this->versions, $this->canSetStatus);
         if (! $this->changedSinceReview) {
             $this->reviewedFingerprint = $this->report->fingerprint;
         }
@@ -306,8 +344,25 @@ new class extends Component {
             <x-contract-breadcrumbs :contract="$contract" />
             <div class="flex flex-wrap items-center gap-3">
                 <flux:heading size="xl" level="1">{{ $contract->title }}</flux:heading>
-                <flux:badge>v{{ $contract->version }}</flux:badge>
+                @if ($this->versions->count() > 1)
+                    <flux:dropdown data-test="version-switcher">
+                        <flux:button size="sm" icon:trailing="chevron-down">v{{ $contract->version }}</flux:button>
+                        <flux:menu>
+                            @foreach ($this->versions as $version)
+                                <flux:menu.item :href="route('contracts.show', $version)" wire:navigate wire:key="version-{{ $version->id }}" :icon="$version->id === $contract->id ? 'check' : null">
+                                    {{ __('Version :v', ['v' => $version->version]) }}
+                                    <span class="ms-2 text-zinc-500">{{ collect([$version->isAgreed() ? __('Agreed') : __('Not agreed'), $version->isOpen() ? null : __($version->status->label())])->filter()->implode(' · ') }}</span>
+                                </flux:menu.item>
+                            @endforeach
+                        </flux:menu>
+                    </flux:dropdown>
+                @else
+                    <flux:badge>v{{ $contract->version }}</flux:badge>
+                @endif
                 <flux:badge :color="$this->report->state->colour()" data-test="contract-state">{{ $this->report->state->label() }}</flux:badge>
+                @if (! $contract->isOpen())
+                    <flux:badge :color="$contract->status->colour()" data-test="contract-status">{{ __($contract->status->label()) }}</flux:badge>
+                @endif
                 @if ($contract->require_human_signoff)
                     <flux:badge color="sky" icon="user">{{ __('Human sign-off') }}</flux:badge>
                 @endif
@@ -315,17 +370,39 @@ new class extends Component {
         </div>
         <div class="flex items-end gap-3">
             <x-acting-as :options="$this->actingOptions" />
+            @if ($this->canSetStatus)
+                <flux:dropdown align="end" data-test="status-menu">
+                    <flux:button size="sm" icon:trailing="chevron-down">{{ __('Status: :status', ['status' => __($contract->status->label())]) }}</flux:button>
+                    <flux:menu>
+                        @foreach (\App\Enums\ContractStatus::cases() as $status)
+                            @if ($status === \App\Enums\ContractStatus::Open)
+                                <flux:menu.item wire:click="setStatus('{{ $status->value }}')" :disabled="$contract->status === $status">{{ __('Open') }}</flux:menu.item>
+                            @else
+                                <flux:menu.item wire:click="setStatus('{{ $status->value }}')" :disabled="$contract->status === $status"
+                                                wire:confirm="{{ __('Mark this contract :status? It becomes read-only until it is reopened.', ['status' => strtolower(__($status->label()))]) }}">{{ __($status->label()) }}</flux:menu.item>
+                            @endif
+                        @endforeach
+                    </flux:menu>
+                </flux:dropdown>
+            @endif
             @if ($this->isOwner)
                 <flux:button size="sm" icon="cog-6-tooth" :href="route('contracts.settings', $contract)" wire:navigate>{{ __('Settings') }}</flux:button>
             @endif
         </div>
     </div>
 
-    @if ($contract->previous_version_id)
-        <flux:text size="sm">
-            {{ __('Continues') }}
-            <flux:link :href="route('contracts.show', $contract->previous_version_id)" wire:navigate>{{ __('version :v', ['v' => $contract->version - 1]) }}</flux:link>.
-        </flux:text>
+    @if (! $contract->isOpen())
+        <flux:callout :icon="$contract->status === \App\Enums\ContractStatus::Complete ? 'check-circle' : 'x-circle'" color="zinc"
+                      :heading="__('Marked :status', ['status' => strtolower(__($contract->status->label()))])" data-test="closed-callout">
+            <flux:callout.text>
+                {{ $contract->isAgreed() ? __('Reopening it does not unlock it: it is agreed, so any change needs a new version.') : __('This version is read-only until it is reopened.') }}
+            </flux:callout.text>
+            @if ($this->canSetStatus)
+                <x-slot name="actions">
+                    <flux:button size="sm" wire:click="setStatus('open')">{{ __('Reopen') }}</flux:button>
+                </x-slot>
+            @endif
+        </flux:callout>
     @endif
 
     @if ($contract->isAgreed())
@@ -349,6 +426,8 @@ new class extends Component {
                 <flux:text size="sm">
                     @if ($contract->isAgreed())
                         {{ __('Every required party signed off.') }}
+                    @elseif (! $contract->isOpen())
+                        {{ __('Sign-off is paused until the contract is reopened.') }}
                     @elseif ($this->report->requiredPartyIds === [])
                         {{ __('No required approvers yet. An owner sets them in the contract settings.') }}
                     @elseif ($this->report->activeStepCount === 0)
@@ -361,7 +440,7 @@ new class extends Component {
                 </flux:text>
             </div>
 
-            @if ($this->actingIsRequired && ! $contract->isAgreed())
+            @if ($this->actingIsRequired && ! $contract->isLocked())
                 <div class="flex items-center gap-2">
                     @if ($this->actingHasSignedOff)
                         <flux:badge color="green" icon="check">{{ __('You signed off') }}</flux:badge>

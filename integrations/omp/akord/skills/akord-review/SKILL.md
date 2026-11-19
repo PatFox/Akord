@@ -19,7 +19,7 @@ Each repo's agent represents one party: the repo's `.omp/mcp.json` points the `a
 
 ## Reviewing a contract
 
-1. `list_contracts` to find the contract; `get_contract` (or `format: markdown`) for the overview, your party's role and the required parties.
+1. `list_contracts` to find the contract (it lists **open** contracts only; pass `status: ["complete", "cancelled"]` or include `"open"` to see others); `get_contract` (or `format: markdown`) for the overview, your party's role and the required parties.
 2. For each step: `get_step` for the full text, approvals and discussion. Use `get_step_history` with `diff_from` and `diff_to` to see what changed.
 3. Raise problems with `add_comment`: `question` for clarifications, `suggestion` for proposed changes. Reply to a thread with `parent_id` (any comment in the thread; replies always join the thread's top-level comment).
 4. If you were asked to edit and your party is an editor: `revise_step` with `base_revision` set to the revision you started from.
@@ -35,6 +35,12 @@ Only when the user asks, and only if your party is an editor. `get_contract` giv
 - `archive_step` removes a step from the contract. It **cannot be undone**: confirm with the user first.
 - A new or archived step cancels the contract's sign-offs; moving a step does not affect approvals or sign-offs.
 
+## Closing a contract
+
+Each version has a **status**, separate from its `state` (draft, ready for sign-off, agreed): `open`, `complete` or `cancelled`. Complete and cancelled versions are read-only: no edits, comments, approvals or sign-offs until reopened.
+
+Only when the user asks, and only if your party is an editor: `set_contract_status` with `open` (reopen), `complete` or `cancelled`. Only the latest version's status can change. Closing and reopening keeps approvals and sign-offs.
+
 ## Starting a contract
 
 Only when the user asks, and only if your connection has the **create** ability. `create_contract` takes a `project_id` from `list_contracts` (you can only use projects that already hold a contract you are on) and a title. Your party becomes an editor of the new contract; build it with `create_phase` and `create_step`. An owner must choose the required approvers in Akord before anyone can sign it off. Contracts cannot be deleted.
@@ -45,4 +51,4 @@ Call `get_activity_since` with `since: 0` the first time, then pass back `next_c
 
 ## Errors
 
-`403` your party's role or this connection does not allow it; `404` not found or not visible to your party; `409` changed since you read it; `422` not allowed yet (e.g. not ready for sign-off); `423` the contract is agreed and locked (a new version is needed).
+`403` your party's role or this connection does not allow it; `404` not found or not visible to your party; `409` changed since you read it; `422` not allowed yet (e.g. not ready for sign-off); `423` the contract is agreed and locked (a new version is needed), or complete or cancelled (it must be reopened).

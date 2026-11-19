@@ -7,6 +7,7 @@ use App\Actions\Approvals\ApproveStep;
 use App\Actions\Approvals\WithdrawApproval;
 use App\Actions\Comments\AddComment;
 use App\Actions\Contracts\ContractReadiness;
+use App\Actions\Contracts\SetContractStatus;
 use App\Actions\Contracts\SignOffContract;
 use App\Actions\Contracts\WithdrawSignOff;
 use App\Actions\Phases\CreatePhase;
@@ -16,6 +17,7 @@ use App\Actions\Steps\MoveStep;
 use App\Actions\Steps\ReviseStep;
 use App\Enums\CommentKind;
 use App\Enums\ContractAbility;
+use App\Enums\ContractStatus;
 use App\Exceptions\InvalidActionException;
 use App\Models\ActivityEvent;
 use App\Models\Comment;
@@ -39,14 +41,19 @@ use LogicException;
 final class AgentApi
 {
     /**
+     * Every version the agent is attached to whose status is one of $statuses; open only when none are given (D14).
+     *
+     * @param  list<ContractStatus>  $statuses
      * @return list<array<string, mixed>>
      */
-    public function listContracts(Actor $actor): array
+    public function listContracts(Actor $actor, array $statuses = []): array
     {
         $this->authorizeRead($actor);
+        $statuses = $statuses === [] ? [ContractStatus::Open] : $statuses;
 
         return array_values(Contract::query()
             ->visibleTo($this->party($actor))
+            ->whereIn('status', array_map(fn (ContractStatus $status) => $status->value, $statuses))
             ->with('project.organisation')
             ->orderBy('created_at')
             ->orderBy('id')
@@ -90,6 +97,18 @@ final class AgentApi
     public function status(Actor $actor, string $contractId): array
     {
         $contract = $this->visibleContract($actor, $contractId);
+
+        return AgentPresenter::status($contract, ContractReadiness::report($contract));
+    }
+
+    /**
+     * Marks a contract open, complete or cancelled (D14); needs the 'edit' ability and an editor party.
+     *
+     * @return array<string, mixed>
+     */
+    public function setStatus(Actor $actor, string $contractId, ContractStatus $status): array
+    {
+        $contract = app(SetContractStatus::class)->handle($actor, $this->visibleContract($actor, $contractId), $status);
 
         return AgentPresenter::status($contract, ContractReadiness::report($contract));
     }

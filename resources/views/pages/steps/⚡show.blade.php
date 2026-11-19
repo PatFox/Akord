@@ -138,19 +138,19 @@ new class extends Component {
     #[Computed]
     public function canEdit(): bool
     {
-        return ! $this->contract->isAgreed() && ! $this->step->isArchived() && $this->allows(ContractAbility::Edit);
+        return ! $this->contract->isLocked() && ! $this->step->isArchived() && $this->allows(ContractAbility::Edit);
     }
 
     #[Computed]
     public function canComment(): bool
     {
-        return ! $this->contract->isAgreed() && ! $this->step->isArchived() && $this->allows(ContractAbility::Comment);
+        return ! $this->contract->isLocked() && ! $this->step->isArchived() && $this->allows(ContractAbility::Comment);
     }
 
     #[Computed]
     public function canApprove(): bool
     {
-        return ! $this->contract->isAgreed() && ! $this->step->isArchived() && $this->allows(ContractAbility::Approve);
+        return ! $this->contract->isLocked() && ! $this->step->isArchived() && $this->allows(ContractAbility::Approve);
     }
 
     #[Computed]

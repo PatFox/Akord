@@ -3,6 +3,7 @@
 use App\Actions\Contracts\ContractReadiness;
 use App\Actions\Organisations\CreateContract;
 use App\Enums\ContractState;
+use App\Enums\ContractStatus;
 use App\Livewire\Concerns\RunsActions;
 use App\Models\Contract;
 use App\Models\Organisation;
@@ -10,6 +11,7 @@ use App\Models\Project;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\Validate;
 use Livewire\Component;
 
@@ -19,6 +21,10 @@ new class extends Component {
     public Organisation $organisation;
 
     public Project $project;
+
+    /** Which statuses to list: a ContractStatus value or "all". Set from ?status= on load (D14). */
+    #[Locked]
+    public string $filter = 'open';
 
     #[Validate('required|string|max:200')]
     public string $title = '';
@@ -31,6 +37,11 @@ new class extends Component {
 
         $this->organisation = $organisation;
         $this->project = $project;
+
+        $requested = request()->query('status');
+        $this->filter = $requested === 'all' || ContractStatus::tryFrom(is_string($requested) ? $requested : '') !== null
+            ? $requested
+            : ContractStatus::Open->value;
     }
 
     #[Computed]
@@ -40,22 +51,47 @@ new class extends Component {
     }
 
     /**
-     * @return Collection<int, array{contract: Contract, state: ContractState, superseded: bool}>
+     * The latest visible version of each contract, any status.
+     *
+     * @return Collection<int, Contract>
+     */
+    #[Computed]
+    public function latest(): Collection
+    {
+        return Contract::query()
+            ->latestVisibleTo(Auth::user())
+            ->where('project_id', $this->project->id)
+            ->orderBy('title')
+            ->orderBy('id')
+            ->get();
+    }
+
+    /**
+     * @return array<string, int> status value => number of contracts, plus "all"
+     */
+    #[Computed]
+    public function counts(): array
+    {
+        $counts = ['all' => $this->latest->count()];
+        foreach (ContractStatus::cases() as $status) {
+            $counts[$status->value] = $this->latest->where('status', $status)->count();
+        }
+
+        return $counts;
+    }
+
+    /**
+     * @return Collection<int, array{contract: Contract, state: ContractState}>
      */
     #[Computed]
     public function contracts(): Collection
     {
-        return Contract::query()
-            ->visibleTo(Auth::user())
-            ->where('project_id', $this->project->id)
-            ->withExists('nextVersion')
-            ->orderBy('title')
-            ->orderByDesc('version')
-            ->get()
+        return $this->latest
+            ->when($this->filter !== 'all', fn (Collection $contracts) => $contracts->where('status', ContractStatus::from($this->filter)))
+            ->values()
             ->map(fn (Contract $contract) => [
                 'contract' => $contract,
                 'state' => ContractReadiness::report($contract)->state,
-                'superseded' => (bool) $contract->next_version_exists,
             ]);
     }
 
@@ -87,21 +123,43 @@ new class extends Component {
     </div>
 
     <div class="space-y-3">
-        <flux:heading size="lg" level="2">{{ __('Contracts') }}</flux:heading>
+        <div class="flex flex-wrap items-center justify-between gap-3">
+            <flux:heading size="lg" level="2">{{ __('Contracts') }}</flux:heading>
+            {{-- Plain links: changing the filter reloads the page. --}}
+            <nav class="flex flex-wrap gap-1" aria-label="{{ __('Contract status') }}" data-test="status-filter">
+                @foreach ([...array_map(fn ($s) => [$s->value, $s->label()], \App\Enums\ContractStatus::cases()), ['all', 'All']] as [$value, $label])
+                    <flux:button size="sm" :variant="$filter === $value ? 'primary' : 'ghost'"
+                                 :href="route('projects.show', ['organisation' => $organisation, 'project' => $project] + ($value === 'open' ? [] : ['status' => $value]))">
+                        {{ __($label) }} <span class="ms-1 opacity-70">{{ $this->counts[$value] }}</span>
+                    </flux:button>
+                @endforeach
+            </nav>
+        </div>
 
         @forelse ($this->contracts as $item)
             <a href="{{ route('contracts.show', $item['contract']) }}" wire:navigate wire:key="contract-{{ $item['contract']->id }}"
-               @class(['flex items-center justify-between gap-4 rounded-lg border border-zinc-200 px-4 py-3 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-700/40', 'opacity-60' => $item['superseded']])>
-                <span class="font-medium">{{ $item['contract']->title }} <span class="text-zinc-500">v{{ $item['contract']->version }}</span></span>
+               class="flex items-center justify-between gap-4 rounded-lg border border-zinc-200 px-4 py-3 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-700/40">
+                <span class="font-medium">
+                    {{ $item['contract']->title }}
+                    @if ($item['contract']->version > 1)
+                        <span class="ms-1 text-xs font-normal text-zinc-500" title="{{ __(':count versions', ['count' => $item['contract']->version]) }}">v{{ $item['contract']->version }}</span>
+                    @endif
+                </span>
                 <span class="flex items-center gap-2">
-                    @if ($item['superseded'])
-                        <flux:badge size="sm" color="zinc">{{ __('Superseded') }}</flux:badge>
+                    @if ($item['contract']->status !== \App\Enums\ContractStatus::Open)
+                        <flux:badge size="sm" :color="$item['contract']->status->colour()">{{ __($item['contract']->status->label()) }}</flux:badge>
                     @endif
                     <flux:badge size="sm" :color="$item['state']->colour()">{{ $item['state']->label() }}</flux:badge>
                 </span>
             </a>
         @empty
-            <flux:text>{{ $this->isOwner ? __('No contracts yet. Create the first one below.') : __('No contracts visible to you.') }}</flux:text>
+            <flux:text>
+                @if ($this->counts['all'] === 0)
+                    {{ $this->isOwner ? __('No contracts yet. Create the first one below.') : __('No contracts visible to you.') }}
+                @else
+                    {{ $filter === 'all' ? __('No contracts.') : __('No :status contracts.', ['status' => strtolower(\App\Enums\ContractStatus::from($filter)->label())]) }}
+                @endif
+            </flux:text>
         @endforelse
     </div>
 

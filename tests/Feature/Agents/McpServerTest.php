@@ -10,11 +10,11 @@ beforeEach(function () {
     $this->agent = AgentClient::on($this, $this->s);
 });
 
-test('the MCP server lists its seventeen tools in one page', function () {
+test('the MCP server lists its eighteen tools in one page', function () {
     expect($this->agent->mcp('tools/list')->json('result.tools.*.name'))->toBe([
         'list_contracts', 'get_contract', 'get_contract_status', 'get_step', 'get_step_history', 'get_activity_since',
         'create_contract', 'revise_step', 'create_step', 'move_step', 'create_phase', 'archive_step',
-        'add_comment', 'approve_step', 'withdraw_approval', 'sign_off_contract', 'withdraw_signoff',
+        'add_comment', 'approve_step', 'withdraw_approval', 'sign_off_contract', 'withdraw_signoff', 'set_contract_status',
     ]);
 });
 
@@ -41,6 +41,15 @@ test('agents approve through MCP, and refusals come back as tool errors with the
 
     [$error, $text] = $this->agent->tool('approve_step', $args);
     expect($error)->toBeTrue()->and($text)->toStartWith('422: ');
+});
+
+test('list_contracts shows open contracts by default and others on request; set_contract_status closes them', function () {
+    $list = fn (array $args = []) => $this->agent->tool('list_contracts', $args)[1];
+
+    expect($this->agent->tool('set_contract_status', ['contract_id' => $this->s->contract->id, 'status' => 'complete'])[0])->toBeFalse()
+        ->and($list())->not->toContain($this->s->contract->id)
+        ->and($list(['status' => ['complete']]))->toContain($this->s->contract->id)
+        ->and($this->agent->tool('list_contracts', ['status' => ['archived']])[0])->toBeTrue();
 });
 
 test('the MCP server refuses requests without a valid token', function () {

@@ -38,7 +38,7 @@ This document records the agreed plan: v2, as amended by v3 and decisions D8–D
 | Q10 | Separate organisations. Owners see every contract in their organisation; everyone else sees only the contracts they were invited to. |
 | D1 ✅ | "Owner" is an organisation role. Editor, commenter and viewer are roles a **party** holds on a **contract**, and every member of the party inherits it. |
 | D2 ✅ | Editors and commenters can approve; viewers cannot. Only approvals from required parties count. |
-| D3 ✅ | A locked contract is fully read-only, comments included. The only thing allowed is "Start new version". |
+| D3 ✅ | A locked contract is fully read-only, comments included. The only thing allowed is "Start new version". (Invitations were always allowed too; D14 adds closed versions to "locked" and lets the status change.) |
 | D4 ✅ | Only organisation owners can invite people, attach parties to contracts, set required approvers, and start a new version. |
 | D5 ✅ | User accounts are global, so an outsider can be invited to a single contract and see nothing else. |
 | D6 ✅ | Each agent is its own party. |
@@ -49,6 +49,7 @@ This document records the agreed plan: v2, as amended by v3 and decisions D8–D
 | D11 ✅ | Spacing-only edits do **not** cancel approvals or sign-offs. The edit is still saved as a new revision so it shows in history. |
 | D12 ✅ | **Database portability.** The schema and queries must work on SQLite (development and tests) and **MySQL 8**, and both are verified. PostgreSQL is a design consideration but untested. Migrations use only the schema builder, with no raw SQL. Anything one engine can't do needs a portable equivalent. See "Database portability" in §2. |
 | D13 ✅ | (2026-11-19) **A new version carries over the approvals** that counted on the agreed contract, since nothing has changed yet. Withdrawn approvals, sign-offs and comments stay with the old version. So a new version starts **ready for sign-off**, and every required party signs off again. |
+| D14 ✅ | (2026-11-19) **Each version has a status**: `open` (default), `complete` or `cancelled`, set by people, separate from the derived state. A version that is not open is locked like an agreed one (423) until it is reopened; invitations, the status itself and "start new version" still work. Closing and reopening keeps approvals and sign-offs and sends no notifications. Anyone who may edit steps changes it (owners, editor parties, agents with `edit`), only on the latest version. A new version starts open. The contracts list shows one row per contract (its latest visible version), open ones by default; agents' `list_contracts` also defaults to open. |
 
 ## 2. Data model
 
@@ -64,7 +65,7 @@ Every entity's `id`, and every foreign key to one, is a random 16-character stri
 | `party_user` | party_id, user_id | Agents have no rows here |
 | agent tokens | Sanctum `personal_access_tokens`, attached to the agent party | Abilities: `read`, `comment`, `edit`, `approve` |
 | `agent_claim_codes` | party_id, code_hash, expires_at, claimed_at | One-time code an agent exchanges for a token |
-| `contracts` | project_id, title, version, previous_version_id, agreed_at, agreed_fingerprint, require_human_signoff (bool, default false) | No status column. Agreed means `agreed_at` is set; `draft` and `ready_for_signoff` are worked out when needed. |
+| `contracts` | project_id, title, version, previous_version_id, agreed_at, agreed_fingerprint, require_human_signoff (bool, default false), status (`open`/`complete`/`cancelled`, default `open`) | `status` is set by people (D14). There's no state column: agreed means `agreed_at` is set; `draft` and `ready_for_signoff` are worked out when needed. |
 | `contract_party` | contract_id, party_id, role (editor/commenter/viewer), is_required_approver | Controls access and approval |
 | `invitations` | organisation_id, contract_id, party_id, email, token_hash, expires_at, accepted_at, invited_by | Invitations are per contract |
 | `phases` | contract_id, title, position | |
@@ -116,6 +117,7 @@ Every entity's `id`, and every foreign key to one, is a random 16-character stri
   - Organisation owner: full access.
   - Anyone else: must belong to a party attached to the contract. That party's role decides what they can do.
   - Agents follow the same rule, further limited by their token abilities.
+- **Contract status (D14):** changed with the edit ability, like steps: owners acting for their own party, editor parties, and agents with `edit`. Commenters and viewers cannot.
 - **Projects list:** shows only projects with at least one visible contract; owners see all of them.
 - **No global tenant scope.** Every query starts from the actor's visible records, and nested route bindings are checked (a step must belong to the contract in the URL). A global scope was rejected because it tends to be bypassed in jobs and MCP calls.
 
@@ -700,6 +702,16 @@ Update with `powershell -ExecutionPolicy Bypass -File $env:LOCALAPPDATA\Akord\ak
 - **Test:** `AgentApiTest` "a change note up to the advertised 500 characters…": 500 characters are saved whole, and 501 give 422. On MySQL it fails without the migration and passes with it. On SQLite it can't fail, so CI's MySQL job is what guards it.
 - **Deployed** to NUC03 on 2026-11-18 in `v0.1.0-pre.d2da2cf` (§8). The column is now `varchar(500)`.
 
+### Change: contract list and status (2026-11-19)
+
+- **Contracts list** (`projects/⚡show`): one row per contract, its latest visible version (`Contract::latestVisibleTo`: visible, with no visible next version). A muted `v2` appears from version 2 on. Status links (Open, Complete, Cancelled, All, with counts) are plain links to `?status=`, so changing the filter reloads the page; a missing or unknown value means open. The organisation page counts open contracts per project.
+- **Status (D14):** `contracts.status` (migration `2026_11_19_120000_add_status_to_contracts`, existing rows become open), enum `ContractStatus`, action `SetContractStatus` (records `contract.status_changed` with `from`/`to`).
+  - `Contract::isLocked()` is agreed or not open. `ContractTransaction` checks it; `allowWhenAgreed` became `allowWhenLocked` (invitations, `StartNewVersion`, `SetContractStatus`). `ContractLockedException::for()` says "Reopen it" for closed versions.
+  - Web: a status menu and a "Marked …" callout with **Reopen** on the contract page; edit, comment, approve and sign-off controls hide while closed, and settings controls are disabled.
+- **Versions:** the contract page's version badge is a menu of the versions the user can see. The settings page no longer lists versions or starts one; "Start new version" stays in the agreed callout.
+- **Agents:** `status` in the contract summary, contract and status shapes. `list_contracts` takes `status` (array, default `["open"]`); `GET /api/v1/contracts?status[]=…`. New MCP tool `set_contract_status` and `PATCH /api/v1/contracts/{id} {status}`. Unknown statuses give 422. Server instructions and the skill say so; plugin 1.4.0.
+- **Known limit:** a user attached to v1 and v3 but not v2 sees two rows for that contract, because "latest visible" is worked out one link at a time.
+
 ### Order of work
 
 Phases 1–13 are done, in order.
@@ -736,7 +748,8 @@ Phases 1–13 are done, in order.
 6. Two concurrent final sign-offs lock the contract exactly once (one `contract.agreed` event).
 7. **After lock:**
    - Every write returns `423`, except `StartNewVersion`.
-   - The new version links back to v1, carries over the approvals that counted, has no sign-offs, and starts `ready_for_signoff` (D13; it started in `draft` before 2026-11-19).
+   - The new version links back to v1, carries over the approvals that counted, has no sign-offs, and starts `ready_for_signoff` (D13; it started in `draft` before 2026-11-19). It starts `open` whatever v1's status.
+   - A complete or cancelled version also returns `423` for every write except invitations, until reopened. Closing and reopening keeps approvals and sign-offs (D14).
 8. A stale edit (simultaneous edits) returns `409` or the Livewire error, and no revision is lost.
 9. **Visibility:**
    - An owner sees every contract in the organisation; a non-owner sees only attached contracts.
@@ -790,11 +803,16 @@ Phases 1–13 are done, in order.
 - **Stable instance on this machine:** ports 8100 (web) and 8101 (Reverb), so it runs beside dev (8000, 8082, Vite 5173).
 - **Server instance on NUC03 (`http://akord.nuc03`), installed 2026-11-17, moved to MySQL the same day:**
   - **Server:** `pat@192.168.1.205` (key in `~/.ssh/config`), running Ubuntu **26.04**, Apache 2.4.66 and PHP **8.5.4** with **mod_php** (prefork), like the other `.nuc03` vhosts. `sudo` needs a password, so root steps go to the user as a script.
-  - **Release:** `v0.1.0-pre.d2da2cf`, a local `build-release.php` of `main` at `d2da2cf` (Phase 13, the comment-thread fix and the `change_note` fix, CI green). Deployed 2026-11-18 with scp; no GitHub release exists yet.
-    - The update script followed the README with the §8 changes. The `mysqldump` backup is `backups/akord-v0.1.0-pre.eab7f57-20261118-180222.sql`. The one pending migration, `widen_step_revision_change_note`, ran in 18 ms.
+  - **Release:** `v0.1.0-pre.451dbae`, a local `build-release.php` of `main` at `451dbae` (Phase 13, the comment-thread and `change_note` fixes, and D13, CI green). Deployed 2026-11-19 with scp; no GitHub release exists yet.
+    - The update script followed the README with the §8 changes. The `mysqldump` backup is `backups/akord-v0.1.0-pre.d2da2cf-20261119-094422.sql`, and there was nothing to migrate.
     - There was no Apache reload: after 2 minutes in maintenance mode, all 20 probe requests ran the new release.
     - Laravel 13.42 runs on PHP 8.5 without errors.
-    - Earlier releases still in `releases/`: `v0.1.0-pre.eab7f57`, `v0.1.0-pre.8b88971.ids` (the uncommitted Phase 13 build) and `v0.1.0-pre.8b88971` (integer ids, SQLite). The backup taken before the `eab7f57` deploy is `backups/akord-v0.1.0-pre.8b88971.ids-20261118-174050.sql`.
+    - **Release history:**
+      - `v0.1.0-pre.d2da2cf` (2026-11-18): `change_note` migration; backup before it is `backups/akord-v0.1.0-pre.eab7f57-20261118-180222.sql`.
+      - `v0.1.0-pre.eab7f57` (2026-11-18): comment-thread fix; backup before it is `backups/akord-v0.1.0-pre.8b88971.ids-20261118-174050.sql`.
+      - `v0.1.0-pre.8b88971.ids`: the uncommitted Phase 13 build.
+      - `v0.1.0-pre.8b88971`: integer ids, SQLite.
+      - All of them are still in `releases/`.
   - **Database:** MySQL **8.4.13**. Database `akord` (utf8mb4), user `akord@localhost` (`caching_sha2_password`, rights on `akord.*` only).
     - Akord connects over the Unix socket: `DB_SOCKET=/var/run/mysqld/mysqld.sock`. The password is only in `shared/.env`.
     - MySQL `root` has its own password (not socket auth), so creating databases or users needs the user (`mysql -u root -p`); `sudo` alone is refused.

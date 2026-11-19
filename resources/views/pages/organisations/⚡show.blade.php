@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Organisations\CreateProject;
+use App\Enums\ContractStatus;
 use App\Livewire\Concerns\RunsActions;
 use App\Models\Contract;
 use App\Models\Organisation;
@@ -33,7 +34,7 @@ new class extends Component {
     }
 
     /**
-     * @return Collection<int, array{project: Project, contracts: int}>
+     * @return Collection<int, array{project: Project, open: int}>
      */
     #[Computed]
     public function projects(): Collection
@@ -47,7 +48,7 @@ new class extends Component {
             ->get()
             ->map(fn (Project $project) => [
                 'project' => $project,
-                'contracts' => Contract::query()->visibleTo($user)->where('project_id', $project->id)->count(),
+                'open' => Contract::query()->latestVisibleTo($user)->where('project_id', $project->id)->where('status', ContractStatus::Open)->count(),
             ]);
     }
 
@@ -111,7 +112,7 @@ new class extends Component {
             <a href="{{ route('projects.show', ['organisation' => $organisation, 'project' => $item['project']]) }}" wire:navigate wire:key="project-{{ $item['project']->id }}"
                class="flex items-center justify-between rounded-lg border border-zinc-200 px-4 py-3 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-700/40">
                 <span class="font-medium">{{ $item['project']->name }}</span>
-                <flux:text size="sm">{{ trans_choice(':count contract|:count contracts', $item['contracts']) }}</flux:text>
+                <flux:text size="sm">{{ trans_choice(':count open contract|:count open contracts', $item['open']) }}</flux:text>
             </a>
         @empty
             <flux:text>{{ $this->isOwner ? __('No projects yet. Create the first one below.') : __('No projects visible to you.') }}</flux:text>

@@ -71,7 +71,7 @@ final class InviteToContract
             $log->record('invitation.sent', $invitation, ['party_id' => $party->id]);
 
             return [$invitation, $token];
-        }, allowWhenAgreed: true);
+        }, allowWhenLocked: true);
 
         Mail::to($invitation->email)->send(new InvitationMail($invitation, $token));
 

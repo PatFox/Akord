@@ -25,6 +25,6 @@ final class CancelInvitation
             }
 
             return $invitation;
-        }, allowWhenAgreed: true);
+        }, allowWhenLocked: true);
     }
 }

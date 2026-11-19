@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\ContractStatus;
 use App\Enums\OrganisationRole;
 use App\Models\Concerns\HasRandomId;
 use Database\Factories\ContractFactory;
@@ -16,6 +17,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 
 /**
  * @property string $id
@@ -26,14 +28,24 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $agreed_at
  * @property string|null $agreed_fingerprint
  * @property bool $require_human_signoff
+ * @property ContractStatus $status
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['project_id', 'title', 'version', 'previous_version_id', 'require_human_signoff'])]
+#[Fillable(['project_id', 'title', 'version', 'previous_version_id', 'require_human_signoff', 'status'])]
 class Contract extends Model
 {
     /** @use HasFactory<ContractFactory> */
     use HasFactory, HasRandomId;
+
+    /**
+     * Every version starts open (D14).
+     *
+     * @var array<string, mixed>
+     */
+    protected $attributes = [
+        'status' => 'open',
+    ];
 
     /**
      * @return array<string, string>
@@ -44,6 +56,7 @@ class Contract extends Model
             'version' => 'integer',
             'agreed_at' => 'datetime',
             'require_human_signoff' => 'boolean',
+            'status' => ContractStatus::class,
         ];
     }
 
@@ -55,6 +68,44 @@ class Contract extends Model
     public function isAgreed(): bool
     {
         return $this->agreed_at !== null;
+    }
+
+    /**
+     * @phpstan-impure reads mutable state
+     */
+    public function isOpen(): bool
+    {
+        return $this->status === ContractStatus::Open;
+    }
+
+    /**
+     * Agreed (D3) or no longer open (D14): read-only, apart from invitations, the status itself
+     * and starting a new version.
+     *
+     * @phpstan-impure reads mutable state
+     */
+    public function isLocked(): bool
+    {
+        return $this->isAgreed() || ! $this->isOpen();
+    }
+
+    /**
+     * Every version of this contract, oldest first, this one included.
+     *
+     * @return Collection<int, Contract>
+     */
+    public function versions(): Collection
+    {
+        /** @var Collection<int, Contract> $versions */
+        $versions = collect([$this]);
+        for ($c = $this; $c->previous_version_id !== null && ($c = self::query()->find($c->previous_version_id)) !== null;) {
+            $versions->prepend($c);
+        }
+        for ($c = $this; ($c = self::query()->where('previous_version_id', $c->id)->first()) !== null;) {
+            $versions->push($c);
+        }
+
+        return $versions->values();
     }
 
     public function organisationId(): string
@@ -186,5 +237,16 @@ class Contract extends Model
                 ->whereKey($actor->getKey())
                 ->where('organisation_user.role', OrganisationRole::Owner->value))
             ->orWhereHas('parties.users', fn (Builder $users) => $users->whereKey($actor->getKey())));
+    }
+
+    /**
+     * One row per contract: the visible versions with no visible newer version.
+     *
+     * @param  Builder<self>  $query
+     */
+    #[Scope]
+    protected function latestVisibleTo(Builder $query, User|Party $actor): void
+    {
+        $query->visibleTo($actor)->whereDoesntHave('nextVersion', fn (Builder $next) => $next->visibleTo($actor));
     }
 }

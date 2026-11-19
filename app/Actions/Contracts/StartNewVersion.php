@@ -15,10 +15,11 @@ use App\Support\Actor;
 use App\Support\ContractTransaction;
 
 /**
- * Owner-only (D4): starts the next version of an agreed contract. Copies parties, roles, required approvers, phases
- * and active steps (each as revision 1, keeping the original author). The approvals that counted on each step are
- * carried over too, since the content is unchanged; withdrawn approvals, sign-offs and comments are not. An agreed
- * contract had every step approved, so the new version starts ready for sign-off, recorded as `contract.ready` on it.
+ * Owner-only (D4): starts the next version of an agreed contract, whatever its status; the new version starts open
+ * (D14). Copies parties, roles, required approvers, phases and active steps (each as revision 1, keeping the original
+ * author). The approvals that counted on each step are carried over too, since the content is unchanged; withdrawn
+ * approvals, sign-offs and comments are not. An agreed contract had every step approved, so the new version starts
+ * ready for sign-off, recorded as `contract.ready` on it.
  */
 final class StartNewVersion
 {
@@ -98,6 +99,6 @@ final class StartNewVersion
             }
 
             return $next;
-        }, allowWhenAgreed: true);
+        }, allowWhenLocked: true);
     }
 }

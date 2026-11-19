@@ -29,6 +29,7 @@ final class AgentPresenter
             'id' => $contract->id,
             'version' => $contract->version,
             'state' => $report->state->value,
+            'status' => $contract->status->value,
             'previous_version_id' => $contract->previous_version_id,
             'project' => ['id' => $contract->project->id, 'name' => $contract->project->name],
             'organisation' => ['id' => $contract->project->organisation->id, 'name' => $contract->project->organisation->name],
@@ -85,6 +86,7 @@ final class AgentPresenter
         return [
             'contract_id' => $contract->id,
             'state' => $report->state->value,
+            'status' => $contract->status->value,
             'fingerprint' => $report->fingerprint,
             'active_steps' => $report->activeStepCount,
             'required_party_ids' => $report->requiredPartyIds,
