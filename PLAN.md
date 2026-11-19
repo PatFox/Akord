@@ -50,6 +50,7 @@ This document records the agreed plan: v2, as amended by v3 and decisions D8–D
 | D12 ✅ | **Database portability.** The schema and queries must work on SQLite (development and tests) and **MySQL 8**, and both are verified. PostgreSQL is a design consideration but untested. Migrations use only the schema builder, with no raw SQL. Anything one engine can't do needs a portable equivalent. See "Database portability" in §2. |
 | D13 ✅ | (2026-11-19) **A new version carries over the approvals** that counted on the agreed contract, since nothing has changed yet. Withdrawn approvals, sign-offs and comments stay with the old version. So a new version starts **ready for sign-off**, and every required party signs off again. |
 | D14 ✅ | (2026-11-19) **Each version has a status**: `open` (default), `complete` or `cancelled`, set by people, separate from the derived state. A version that is not open is locked like an agreed one (423) until it is reopened; invitations, the status itself and "start new version" still work. Closing and reopening keeps approvals and sign-offs and sends no notifications. Anyone who may edit steps changes it (owners, editor parties, agents with `edit`), only on the latest version. A new version starts open. The contracts list shows one row per contract (its latest visible version), open ones by default; agents' `list_contracts` also defaults to open. |
+| D15 ✅ | (2026-11-19) **Working checklist.** A contract version can have one checklist of stages and items, written by an agent from the plan (its own breakdown, or a copy of the phases and steps); items can link to the contract step they come from. Owners, editor parties and agents with `edit` tick and untick items, recording who and when. It is outside the fingerprint, so it changes after agreement too and never affects approvals or sign-offs; a complete or cancelled version locks it. Replacing a checklist with ticked items needs `replace`. A new version copies it with its ticks. Activity is recorded, with no emails. |
 
 ## 2. Data model
 
@@ -75,6 +76,9 @@ Every entity's `id`, and every foreign key to one, is a random 16-character stri
 | `approvals` | step_id, step_revision_id, party_id, user_id, withdrawn_at, active (generated) | At most one active approval per (step, revision, party), enforced in the database |
 | `contract_signoffs` | contract_id, party_id, user_id (null for agents), fingerprint, created_at, withdrawn_at, active (generated) | At most one active sign-off per (contract, party, fingerprint), enforced in the database |
 | `activity_events` | organisation_id, contract_id, position, actor, type, subject, payload, seq | Single timeline. `seq` (set after commit) is the cursor for `activity?since=`; `position` (1, 2, 3… per contract) orders a contract's events. |
+| `checklists` | contract_id (unique), created_by_party_id, created_by_user_id | One per contract version (D15) |
+| `checklist_stages` | checklist_id, title, position | |
+| `checklist_items` | checklist_stage_id, position, title, notes, step_id (nullable), checked_at, checked_by_party_id, checked_by_user_id | Ticked when `checked_at` is set; `step_id` links the contract step the item came from |
 
 ### Database portability (D12)
 
@@ -734,6 +738,14 @@ Update with `powershell -ExecutionPolicy Bypass -File $env:LOCALAPPDATA\Akord\ak
 - **Download:** `GET /contracts/{id}/plan.md` (`DownloadContractPlan`, route `contracts.plan`), an attachment named `{title-slug}-v{version}.md`; 404 for people who can't see the contract.
 - **Agents:** the plan replaces the old review export (`App\Support\Agents\ContractMarkdown`, removed), so `get_contract` with `format: markdown` and `GET /api/v1/contracts/{id}?format=md` return the same document people download. That export no longer has per-step approval lines or revision numbers; `get_contract` (json) and `get_step` still have both. Skill text updated, plugin 1.4.1.
 
+### Change: checklists (2026-11-19)
+
+- **Data:** migration `2026_11_19_180000_create_checklists_tables`; models `Checklist`, `ChecklistStage`, `ChecklistItem` (morph names `checklist`, `checklist_stage`, `checklist_item`). Stages and items cascade on delete, so replacing deletes the old checklist.
+- **Actions** (`app/Actions/Checklists`): `CreateChecklist` (stages, or a copy of the phases and active steps; at most 100 stages and 500 items; `step_id` must be an active step of the version), `SetChecklistItemChecked`, `AddChecklistItem`. All need `ContractAbility::Edit` and run with `allowWhenLocked`, then refuse complete or cancelled versions themselves (`ChecklistInput::ensureOpen`, 423). Activity types: `checklist.created` (payload `replaced`), `checklist.item_checked`, `checklist.item_unchecked`, `checklist.item_added`; no notifications.
+- **`StartNewVersion`** copies the checklist with its ticks; items follow their steps to the new version's copies, and lose the link if the step was archived.
+- **Agents:** MCP `get_checklist`, `create_checklist`, `check_item`, `uncheck_item`, `add_checklist_item` (23 tools). REST `GET`/`PUT contracts/{id}/checklist`, `POST …/checklist/stages/{stage}/items`, `POST …/checklist/items/{item}/check|uncheck`. Titles and notes sit under `content`. Server instructions and the skill ("Working through a checklist") explain it; plugin 1.5.0.
+- **Web:** a **Checklist** tab with a `done/total` count appears once a checklist exists (`?tab=checklist`). `pages::contracts.checklist` shows a progress bar, stages with their counts, and items with tick boxes, notes, a link to the item's step and who ticked it when. The boxes are disabled for people who may not tick, or when the version is complete or cancelled. Live: the contract page dispatches `checklist-refresh` for `checklist.*` activity; ticking dispatches `checklist-updated` so the tab count updates.
+
 ### Order of work
 
 Phases 1–13 are done, in order.
@@ -825,11 +837,12 @@ Phases 1–13 are done, in order.
 - **Stable instance on this machine:** ports 8100 (web) and 8101 (Reverb), so it runs beside dev (8000, 8082, Vite 5173).
 - **Server instance on NUC03 (`http://akord.nuc03`), installed 2026-11-17, moved to MySQL the same day:**
   - **Server:** `pat@192.168.1.205` (key in `~/.ssh/config`), running Ubuntu **26.04**, Apache 2.4.66 and PHP **8.5.4** with **mod_php** (prefork), like the other `.nuc03` vhosts. `sudo` needs a password, so root steps go to the user as a script.
-  - **Release:** `v0.1.0-pre.94afd32`, a local `build-release.php` of `main` at `94afd32` (Phase 13, the comment-thread and `change_note` fixes, D13, D14 and steps on the contract page, CI green). Deployed 2026-11-19 with scp; no GitHub release exists yet.
-    - The update script followed the README with the §8 changes. The `mysqldump` backup is `backups/akord-v0.1.0-pre.d355a47-20261119-153345.sql`, and there was nothing to migrate.
+  - **Release:** `v0.1.0-pre.ada0c9b`, a local `build-release.php` of `main` at `ada0c9b` (Phase 13, the comment-thread and `change_note` fixes, D13, D14, steps on the contract page, step links and the plan view, CI green). Deployed 2026-11-19 with scp; no GitHub release exists yet.
+    - The update script followed the README with the §8 changes. The `mysqldump` backup is `backups/akord-v0.1.0-pre.94afd32-20261119-165739.sql`, and there was nothing to migrate.
     - There was no Apache reload: after 2 minutes in maintenance mode, all 20 probe requests ran the new release.
     - Laravel 13.42 runs on PHP 8.5 without errors.
     - **Release history:**
+      - `v0.1.0-pre.94afd32` (2026-11-19): steps on the contract page; backup before it is `backups/akord-v0.1.0-pre.d355a47-20261119-153345.sql`.
       - `v0.1.0-pre.d355a47` (2026-11-19): D14, `add_status_to_contracts` migration; backup before it is `backups/akord-v0.1.0-pre.451dbae-20261119-140259.sql`.
       - `v0.1.0-pre.451dbae` (2026-11-19): D13; backup before it is `backups/akord-v0.1.0-pre.d2da2cf-20261119-094422.sql`.
       - `v0.1.0-pre.d2da2cf` (2026-11-18): `change_note` migration; backup before it is `backups/akord-v0.1.0-pre.eab7f57-20261118-180222.sql`.

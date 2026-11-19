@@ -35,6 +35,13 @@ Only when the user asks, and only if your party is an editor. `get_contract` giv
 - `archive_step` removes a step from the contract. It **cannot be undone**: confirm with the user first.
 - A new or archived step cancels the contract's sign-offs; moving a step does not affect approvals or sign-offs.
 
+## Working through a checklist
+
+A contract version can have one working checklist: stages of items, ticked off as the work is done. It is separate from what was agreed, so it still changes after agreement (but not once the contract is complete or cancelled), and ticking never affects approvals or sign-offs.
+
+- **Creating one** (only when the user asks, and only if your party is an editor): read the plan (`get_contract` with `format: markdown`), then `create_checklist` with your own `stages`, each with `items` (`title`, optional `notes`, and `step_id` for the contract step an item comes from). Break steps into concrete tasks where that helps. Omit `stages` to copy the contract's phases and steps as they are. If a checklist already has ticked items, replacing it needs `replace: true`: confirm with the user first.
+- **While working:** `get_checklist` for item ids and what is done; `check_item` as soon as an item's work is finished, `uncheck_item` if it turns out unfinished. `add_checklist_item` adds work you discover to the end of a stage.
+
 ## Closing a contract
 
 Each version has a **status**, separate from its `state` (draft, ready for sign-off, agreed): `open`, `complete` or `cancelled`. Complete and cancelled versions are read-only: no edits, comments, approvals or sign-offs until reopened.

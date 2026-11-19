@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Steps\ReviseStep;
+use App\Models\ChecklistItem;
 use Tests\Support\AgentClient;
 use Tests\Support\Scenario;
 
@@ -10,11 +11,12 @@ beforeEach(function () {
     $this->agent = AgentClient::on($this, $this->s);
 });
 
-test('the MCP server lists its eighteen tools in one page', function () {
+test('the MCP server lists its twenty-three tools in one page', function () {
     expect($this->agent->mcp('tools/list')->json('result.tools.*.name'))->toBe([
         'list_contracts', 'get_contract', 'get_contract_status', 'get_step', 'get_step_history', 'get_activity_since',
         'create_contract', 'revise_step', 'create_step', 'move_step', 'create_phase', 'archive_step',
         'add_comment', 'approve_step', 'withdraw_approval', 'sign_off_contract', 'withdraw_signoff', 'set_contract_status',
+        'get_checklist', 'create_checklist', 'check_item', 'uncheck_item', 'add_checklist_item',
     ]);
 });
 
@@ -50,6 +52,19 @@ test('list_contracts shows open contracts by default and others on request; set_
         ->and($list())->not->toContain($this->s->contract->id)
         ->and($list(['status' => ['complete']]))->toContain($this->s->contract->id)
         ->and($this->agent->tool('list_contracts', ['status' => ['archived']])[0])->toBeTrue();
+});
+
+test('agents create and tick a checklist over MCP', function () {
+    $args = ['contract_id' => $this->s->contract->id];
+
+    [$error] = $this->agent->tool('create_checklist', [...$args, 'stages' => [['title' => 'Build', 'items' => [['title' => 'Routes']]]]]);
+    $item = ChecklistItem::query()->sole();
+    [$checkError] = $this->agent->tool('check_item', [...$args, 'item_id' => $item->id]);
+    [, $text] = $this->agent->tool('get_checklist', $args);
+
+    expect($error)->toBeFalse()->and($checkError)->toBeFalse()
+        ->and($item->fresh()?->isChecked())->toBeTrue()
+        ->and($text)->toContain('"done": 1');
 });
 
 test('the MCP server refuses requests without a valid token', function () {

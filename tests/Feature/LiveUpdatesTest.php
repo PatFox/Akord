@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Approvals\ApproveStep;
+use App\Actions\Checklists\CreateChecklist;
 use App\Actions\Contracts\SetRequiredApprover;
 use App\Actions\Steps\CreateStep;
 use App\Actions\Steps\ReviseStep;
@@ -107,7 +108,7 @@ test('an approval elsewhere updates the page without holding sign-off', function
     expect(ContractSignoff::query()->count())->toBe(1);
 });
 
-test('the contract page passes an activity on to the step it concerns, or to every step', function () {
+test('the contract page passes an activity on to the step it concerns, every step, or the checklist', function () {
     $this->actingAs($this->s->alpha->user);
     $page = Livewire::test('pages::contracts.show', ['contract' => $this->s->contract]);
     $opened = lastActivityPosition($this->s);
@@ -118,4 +119,12 @@ test('the contract page passes an activity on to the step it concerns, or to eve
     $opened = lastActivityPosition($this->s);
     app(SetRequiredApprover::class)->handle($this->s->ownerActor(), $this->s->contract, $this->s->beta->party, false);
     deliverActivitySince($page, $this->s, $opened)->assertDispatched('steps-refresh');
+
+    // A new checklist appears as a tab with its count, and doesn't hold sign-off (the change above is acknowledged first).
+    $page->call('reviewAgain');
+    $opened = lastActivityPosition($this->s);
+    app(CreateChecklist::class)->handle($this->s->party(ContractRole::Editor), $this->s->contract);
+    deliverActivitySince($page, $this->s, $opened)->assertDispatched('checklist-refresh')
+        ->assertSeeHtml('data-test="tab-checklist"')->assertSee('0/1')
+        ->assertDontSee('Contract changed; review again');
 });

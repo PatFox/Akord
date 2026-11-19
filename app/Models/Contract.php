@@ -217,6 +217,14 @@ class Contract extends Model
     }
 
     /**
+     * @return HasOne<Checklist, $this>
+     */
+    public function checklist(): HasOne
+    {
+        return $this->hasOne(Checklist::class);
+    }
+
+    /**
      * Contracts the actor can see. A user sees every contract in an organisation
      * they own, plus contracts attached to a party they belong to. An agent party
      * sees only contracts it is attached to.

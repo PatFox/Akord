@@ -5,6 +5,9 @@ namespace App\Actions\Contracts;
 use App\Enums\ContractAbility;
 use App\Exceptions\InvalidActionException;
 use App\Models\Approval;
+use App\Models\Checklist;
+use App\Models\ChecklistItem;
+use App\Models\ChecklistStage;
 use App\Models\Contract;
 use App\Models\ContractParty;
 use App\Models\Phase;
@@ -19,7 +22,7 @@ use App\Support\ContractTransaction;
  * (D14). Copies parties, roles, required approvers, phases and active steps (each as revision 1, keeping the original
  * author). The approvals that counted on each step are carried over too, since the content is unchanged; withdrawn
  * approvals, sign-offs and comments are not. An agreed contract had every step approved, so the new version starts
- * ready for sign-off, recorded as `contract.ready` on it.
+ * ready for sign-off, recorded as `contract.ready` on it. The checklist, if any, is copied with its ticks.
  */
 final class StartNewVersion
 {
@@ -50,6 +53,8 @@ final class StartNewVersion
                     'is_required_approver' => $membership->is_required_approver,
                 ]));
 
+            /** @var array<string, string> $stepMap old step id => new step id */
+            $stepMap = [];
             $phases = Phase::query()->where('contract_id', $contract->getKey())->orderBy('position')->get();
             foreach ($phases as $phase) {
                 $copy = Phase::query()->create(['contract_id' => $next->id, 'title' => $phase->title, 'position' => $phase->position]);
@@ -75,6 +80,7 @@ final class StartNewVersion
                     ]);
 
                     $newStep->update(['current_revision_id' => $revision->id]);
+                    $stepMap[$step->id] = $newStep->id;
 
                     // Approvals that counted on the agreed content: active, for a revision with the same content hash.
                     Approval::query()->active()
@@ -90,6 +96,8 @@ final class StartNewVersion
                 }
             }
 
+            $this->copyChecklist($contract, $next, $stepMap);
+
             $log->record('contract.version_started', $next, ['version' => $next->version]);
 
             // The new version is invisible to others until this commits, so its own log needs no lock of its own.
@@ -100,5 +108,36 @@ final class StartNewVersion
 
             return $next;
         }, allowWhenLocked: true);
+    }
+
+    /**
+     * The checklist carries on, ticks included; items follow their steps into the new version (an item whose step was
+     * archived loses the link).
+     *
+     * @param  array<string, string>  $stepMap
+     */
+    private function copyChecklist(Contract $from, Contract $to, array $stepMap): void
+    {
+        $checklist = Checklist::query()->where('contract_id', $from->getKey())->with('stages.items')->first();
+        if ($checklist === null) {
+            return;
+        }
+
+        $copy = Checklist::query()->create([
+            'contract_id' => $to->id,
+            'created_by_party_id' => $checklist->created_by_party_id,
+            'created_by_user_id' => $checklist->created_by_user_id,
+        ]);
+
+        foreach ($checklist->stages as $stage) {
+            $stageCopy = ChecklistStage::query()->create(['checklist_id' => $copy->id, 'title' => $stage->title, 'position' => $stage->position]);
+            foreach ($stage->items as $item) {
+                ChecklistItem::query()->create([
+                    ...$item->only(['position', 'title', 'notes', 'checked_at', 'checked_by_party_id', 'checked_by_user_id']),
+                    'checklist_stage_id' => $stageCopy->id,
+                    'step_id' => $item->step_id === null ? null : ($stepMap[$item->step_id] ?? null),
+                ]);
+            }
+        }
     }
 }

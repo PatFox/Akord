@@ -40,6 +40,29 @@ test('agents get the plan document over REST and MCP, the same one the contract 
         ->assertStreamedContent($response->getContent());
 });
 
+test('agents create a checklist from the plan and tick items as they go, over REST', function () {
+    $this->agent->api('GET', "contracts/{$this->id}/checklist")->assertOk()->assertJsonPath('data.checklist', null);
+
+    $created = $this->agent->api('PUT', "contracts/{$this->id}/checklist", ['stages' => [
+        ['title' => 'Build', 'items' => [['title' => 'Routes', 'step_id' => $this->step->id, 'notes' => 'REST only.'], ['title' => 'Tests']]],
+    ]])->assertCreated()
+        ->assertJsonPath('data.checklist.total', 2)
+        ->assertJsonPath('data.checklist.stages.0.content.title', 'Build')
+        ->assertJsonPath('data.checklist.stages.0.items.0.step_id', $this->step->id)
+        ->assertJsonPath('notice', UntrustedContent::NOTICE);
+    $item = $created->json('data.checklist.stages.0.items.0.id');
+    $stage = $created->json('data.checklist.stages.0.id');
+
+    $this->agent->api('POST', "contracts/{$this->id}/checklist/items/{$item}/check")->assertOk()
+        ->assertJsonPath('data.checked', true)->assertJsonPath('data.checked_by.party', $this->agent->party->name);
+    $this->agent->api('POST', "contracts/{$this->id}/checklist/stages/{$stage}/items", ['title' => 'Docs'])->assertCreated();
+    $this->agent->api('GET', "contracts/{$this->id}/checklist")->assertJsonPath('data.checklist.done', 1)->assertJsonPath('data.checklist.total', 3);
+
+    $this->agent->api('PUT', "contracts/{$this->id}/checklist", [])->assertUnprocessable();
+    $this->agent->api('PUT', "contracts/{$this->id}/checklist", ['stages' => [['title' => 'No items key']]])->assertUnprocessable();
+    $this->agent->api('POST', "contracts/{$this->id}/checklist/items/{$item}/uncheck")->assertOk()->assertJsonPath('data.checked', false);
+});
+
 test('approving needs the reviewed revision; a content change since then is a conflict', function () {
     app(ReviseStep::class)->handle($this->s->alpha, $this->step, 1, 'Build the API', 'Changed.');
 

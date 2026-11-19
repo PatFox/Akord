@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Models\ActivityEvent;
 use App\Models\Approval;
+use App\Models\ChecklistItem;
 use App\Models\Comment;
 use App\Models\Contract;
 use App\Models\ContractSignoff;
@@ -62,6 +63,12 @@ final class ActivityDescription
             'invitation.cancelled' => __(':actor cancelled an invitation to :party', ['actor' => $actor, 'party' => self::partyName($payload)]),
             'invitation.accepted' => __(':actor joined :subject', compact('actor', 'subject')),
             'contract.human_signoff_changed' => __(':actor changed the human sign-off rule', compact('actor')),
+            'checklist.created' => ($payload['replaced'] ?? false)
+                ? __(':actor replaced the checklist', compact('actor'))
+                : __(':actor created the checklist', compact('actor')),
+            'checklist.item_checked' => __(':actor ticked :subject', compact('actor', 'subject')),
+            'checklist.item_unchecked' => __(':actor unticked :subject', compact('actor', 'subject')),
+            'checklist.item_added' => __(':actor added :subject to the checklist', compact('actor', 'subject')),
             default => __(':actor made a change', compact('actor')),
         };
     }
@@ -88,6 +95,7 @@ final class ActivityDescription
             $subject instanceof Party => $subject->name,
             $subject instanceof Contract => $subject->title,
             $subject instanceof ContractSignoff => $subject->party->name,
+            $subject instanceof ChecklistItem => $subject->title,
             default => null,
         };
 

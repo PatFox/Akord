@@ -4,6 +4,9 @@ namespace App\Support\Agents;
 
 use App\Models\ActivityEvent;
 use App\Models\Approval;
+use App\Models\Checklist;
+use App\Models\ChecklistItem;
+use App\Models\ChecklistStage;
 use App\Models\Comment;
 use App\Models\Contract;
 use App\Models\Party;
@@ -179,6 +182,49 @@ final class AgentPresenter
             'subject_id' => $event->subject_id,
             'created_at' => $event->created_at->toIso8601String(),
             'content' => ['description' => ActivityDescription::for($event)],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public static function checklist(Checklist $checklist): array
+    {
+        $checklist->loadMissing(['createdByParty', 'createdByUser', 'stages.items.checkedByParty', 'stages.items.checkedByUser']);
+        $items = $checklist->stages->flatMap(fn (ChecklistStage $stage) => $stage->items);
+
+        return [
+            'id' => $checklist->id,
+            'contract_id' => $checklist->contract_id,
+            'created_at' => $checklist->created_at?->toIso8601String(),
+            'created_by' => ['party' => $checklist->createdByParty->name, 'user' => $checklist->createdByUser?->name],
+            'done' => $items->filter(fn (ChecklistItem $item) => $item->isChecked())->count(),
+            'total' => $items->count(),
+            'stages' => $checklist->stages->map(fn (ChecklistStage $stage) => [
+                'id' => $stage->id,
+                'position' => $stage->position,
+                'done' => $stage->items->filter(fn (ChecklistItem $item) => $item->isChecked())->count(),
+                'total' => $stage->items->count(),
+                'content' => ['title' => $stage->title],
+                'items' => $stage->items->map(fn (ChecklistItem $item) => self::checklistItem($item))->all(),
+            ])->all(),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public static function checklistItem(ChecklistItem $item): array
+    {
+        return [
+            'id' => $item->id,
+            'stage_id' => $item->checklist_stage_id,
+            'position' => $item->position,
+            'step_id' => $item->step_id,
+            'checked' => $item->isChecked(),
+            'checked_at' => $item->checked_at?->toIso8601String(),
+            'checked_by' => $item->isChecked() ? ['party' => $item->checkedByParty?->name, 'user' => $item->checkedByUser?->name] : null,
+            'content' => ['title' => $item->title, 'notes' => $item->notes],
         ];
     }
 }

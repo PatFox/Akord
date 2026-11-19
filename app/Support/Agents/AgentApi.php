@@ -5,6 +5,9 @@ namespace App\Support\Agents;
 use App\Actions\Agents\CreateContractAsAgent;
 use App\Actions\Approvals\ApproveStep;
 use App\Actions\Approvals\WithdrawApproval;
+use App\Actions\Checklists\AddChecklistItem;
+use App\Actions\Checklists\CreateChecklist;
+use App\Actions\Checklists\SetChecklistItemChecked;
 use App\Actions\Comments\AddComment;
 use App\Actions\Contracts\ContractReadiness;
 use App\Actions\Contracts\SetContractStatus;
@@ -20,6 +23,7 @@ use App\Enums\ContractAbility;
 use App\Enums\ContractStatus;
 use App\Exceptions\InvalidActionException;
 use App\Models\ActivityEvent;
+use App\Models\Checklist;
 use App\Models\Comment;
 use App\Models\Contract;
 use App\Models\Party;
@@ -291,6 +295,47 @@ final class AgentApi
         $contract = $this->visibleContract($actor, $contractId);
 
         return ['contract_id' => $contract->id, 'withdrawn' => app(WithdrawSignOff::class)->handle($actor, $contract)];
+    }
+
+    /**
+     * @return array{checklist: array<string, mixed>|null}
+     */
+    public function checklist(Actor $actor, string $contractId): array
+    {
+        $checklist = Checklist::query()->where('contract_id', $this->visibleContract($actor, $contractId)->id)->first();
+
+        return ['checklist' => $checklist === null ? null : AgentPresenter::checklist($checklist)];
+    }
+
+    /**
+     * @param  list<array{title: string, items: list<array{title: string, notes?: string|null, step_id?: string|null}>}>|null  $stages
+     * @return array{checklist: array<string, mixed>|null}
+     */
+    public function createChecklist(Actor $actor, string $contractId, ?array $stages, bool $replace): array
+    {
+        app(CreateChecklist::class)->handle($actor, $this->visibleContract($actor, $contractId), $stages, $replace);
+
+        return $this->checklist($actor, $contractId);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function setChecklistItemChecked(Actor $actor, string $contractId, string $itemId, bool $checked): array
+    {
+        $item = app(SetChecklistItemChecked::class)->handle($actor, $this->visibleContract($actor, $contractId), $itemId, $checked);
+
+        return AgentPresenter::checklistItem($item->load(['checkedByParty', 'checkedByUser']));
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function addChecklistItem(Actor $actor, string $contractId, string $stageId, string $title, ?string $notes, ?string $stepId): array
+    {
+        $item = app(AddChecklistItem::class)->handle($actor, $this->visibleContract($actor, $contractId), $stageId, $title, $notes, $stepId);
+
+        return AgentPresenter::checklistItem($item);
     }
 
     private function visibleContract(Actor $actor, string $contractId): Contract

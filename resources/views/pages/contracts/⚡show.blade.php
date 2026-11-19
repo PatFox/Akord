@@ -17,6 +17,7 @@ use App\Livewire\Concerns\ActsOnContract;
 use App\Livewire\Concerns\RunsActions;
 use App\Models\ActivityEvent;
 use App\Models\Approval;
+use App\Models\Checklist;
 use App\Models\Comment;
 use App\Models\Contract;
 use App\Models\Party;
@@ -258,7 +259,9 @@ new class extends Component {
             default => null,
         };
 
-        if ($stepId !== null) {
+        if ($activity !== null && str_starts_with($activity->type, 'checklist.')) {
+            $this->dispatch('checklist-refresh');
+        } elseif ($stepId !== null) {
             $this->dispatch('step-refresh.'.$stepId);
         } elseif ($activity === null || str_starts_with($activity->type, 'party.') || in_array($activity->type, ['contract.agreed', 'contract.status_changed'], true)) {
             $this->dispatch('steps-refresh');
@@ -443,12 +446,34 @@ new class extends Component {
         return ContractPlan::markdown($this->contract, $this->report);
     }
 
+    /**
+     * Done and total items of this version's checklist, for the tab; null when there is none (no tab).
+     *
+     * @return array{done: int, total: int}|null
+     */
+    #[Computed]
+    public function checklistCounts(): ?array
+    {
+        $checklist = Checklist::query()->where('contract_id', $this->contract->id)->first();
+
+        return $checklist === null ? null : [
+            'done' => $checklist->items()->whereNotNull('checked_at')->count(),
+            'total' => $checklist->items()->count(),
+        ];
+    }
+
+    /**
+     * A tick in the Checklist tab changes the count in its label.
+     */
+    #[On('checklist-updated')]
+    public function checklistUpdated(): void {}
+
     public function render()
     {
         // Actions may have changed the contract during this request.
         $this->contract->refresh();
-        unset($this->report, $this->changeDescriptions, $this->phases, $this->requiredParties, $this->approved, $this->stageCounts, $this->archivedCount, $this->archivedSteps, $this->canEdit, $this->actingIsRequired, $this->actingHasSignedOff, $this->nextVersion, $this->versions, $this->canSetStatus, $this->plan);
-        if (! in_array($this->tab, ['steps', 'plan'], true)) {
+        unset($this->report, $this->changeDescriptions, $this->phases, $this->requiredParties, $this->approved, $this->stageCounts, $this->archivedCount, $this->archivedSteps, $this->canEdit, $this->actingIsRequired, $this->actingHasSignedOff, $this->nextVersion, $this->versions, $this->canSetStatus, $this->plan, $this->checklistCounts);
+        if (! in_array($this->tab, ['steps', 'plan', 'checklist'], true) || ($this->tab === 'checklist' && $this->checklistCounts === null)) {
             $this->tab = 'steps';
         }
         if (! $this->changedSinceReview) {
@@ -606,17 +631,23 @@ new class extends Component {
         <flux:text size="xs" class="font-mono">{{ __('Reviewed state') }}: {{ substr($this->report->fingerprint, 0, 12) }}</flux:text>
     </flux:card>
 
-    {{-- Tabs: the working view, or the contract as one plan document. --}}
+    {{-- Tabs: the working view, the contract as one plan document, and (once an agent wrote one) the checklist. --}}
     <div role="tablist" class="flex gap-6 border-b border-zinc-200 dark:border-zinc-700" data-test="contract-tabs">
-        @foreach (['steps' => __('Steps'), 'plan' => __('View as plan')] as $key => $label)
-            <button type="button" role="tab" aria-selected="{{ $tab === $key ? 'true' : 'false' }}" wire:click="$set('tab', '{{ $key }}')"
+        @foreach (['steps' => __('Steps'), 'plan' => __('View as plan'), ...($this->checklistCounts === null ? [] : ['checklist' => __('Checklist')])] as $key => $label)
+            <button type="button" role="tab" aria-selected="{{ $tab === $key ? 'true' : 'false' }}" wire:click="$set('tab', '{{ $key }}')" data-test="tab-{{ $key }}"
                     @class(['-mb-px border-b-2 px-1 pb-2 text-sm font-medium', 'border-zinc-800 text-zinc-900 dark:border-white dark:text-white' => $tab === $key, 'border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200' => $tab !== $key])>
                 {{ $label }}
+                @if ($key === 'checklist')
+                    @php($complete = $this->checklistCounts['total'] > 0 && $this->checklistCounts['done'] === $this->checklistCounts['total'])
+                    <span @class(['ms-1 rounded-full px-1.5 py-0.5 text-xs tabular-nums', 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300' => $complete, 'bg-zinc-100 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300' => ! $complete])>{{ $this->checklistCounts['done'] }}/{{ $this->checklistCounts['total'] }}</span>
+                @endif
             </button>
         @endforeach
     </div>
 
-    @if ($tab === 'plan')
+    @if ($tab === 'checklist')
+        <livewire:pages::contracts.checklist :$contract :key="'checklist-'.$contract->id" />
+    @elseif ($tab === 'plan')
         <flux:card class="space-y-4" data-test="plan">
             <div class="flex flex-wrap items-center justify-between gap-3">
                 <flux:text size="sm">{{ __('Every phase and step, as one document. Archived steps are left out.') }}</flux:text>

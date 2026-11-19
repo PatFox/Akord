@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\V1\ActivityController;
 use App\Http\Controllers\Api\V1\ApprovalController;
+use App\Http\Controllers\Api\V1\ChecklistController;
 use App\Http\Controllers\Api\V1\ClaimController;
 use App\Http\Controllers\Api\V1\CommentController;
 use App\Http\Controllers\Api\V1\ContractController;
@@ -34,6 +35,14 @@ Route::prefix('v1')->group(function () {
         Route::delete('contracts/{contract}/signoffs/mine', [SignoffController::class, 'destroyMine'])->where('contract', RandomId::PATTERN);
         Route::post('contracts/{contract}/phases', [PhaseController::class, 'store'])->where('contract', RandomId::PATTERN);
         Route::post('contracts/{contract}/phases/{phase}/steps', [PhaseController::class, 'storeStep'])->where(['contract' => RandomId::PATTERN, 'phase' => RandomId::PATTERN]);
+
+        Route::prefix('contracts/{contract}/checklist')->where(['contract' => RandomId::PATTERN, 'stage' => RandomId::PATTERN, 'item' => RandomId::PATTERN])->group(function () {
+            Route::get('/', [ChecklistController::class, 'show']);
+            Route::put('/', [ChecklistController::class, 'store']);
+            Route::post('stages/{stage}/items', [ChecklistController::class, 'storeItem']);
+            Route::post('items/{item}/check', [ChecklistController::class, 'check']);
+            Route::post('items/{item}/uncheck', [ChecklistController::class, 'uncheck']);
+        });
 
         Route::prefix('contracts/{contract}/steps/{step}')->where(['contract' => RandomId::PATTERN, 'step' => RandomId::PATTERN])->group(function () {
             Route::get('/', [StepController::class, 'show']);

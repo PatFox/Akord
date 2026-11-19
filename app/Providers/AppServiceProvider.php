@@ -7,6 +7,9 @@ use App\Models\ActivityEvent;
 use App\Models\AgentClaimCode;
 use App\Models\AgentConnection;
 use App\Models\Approval;
+use App\Models\Checklist;
+use App\Models\ChecklistItem;
+use App\Models\ChecklistStage;
 use App\Models\Comment;
 use App\Models\Contract;
 use App\Models\ContractSignoff;
@@ -137,6 +140,9 @@ class AppServiceProvider extends ServiceProvider
             'agent_claim_code' => AgentClaimCode::class,
             'activity_event' => ActivityEvent::class,
             'agent_connection' => AgentConnection::class,
+            'checklist' => Checklist::class,
+            'checklist_stage' => ChecklistStage::class,
+            'checklist_item' => ChecklistItem::class,
         ]);
 
         DB::prohibitDestructiveCommands(
