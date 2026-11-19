@@ -335,7 +335,7 @@ new class extends Component {
                 @if ($this->nextVersion)
                     <flux:button size="sm" :href="route('contracts.show', $this->nextVersion)" wire:navigate>{{ __('Open version :v', ['v' => $this->nextVersion->version]) }}</flux:button>
                 @elseif ($this->isOwner)
-                    <flux:button size="sm" variant="primary" wire:click="startNewVersion" wire:confirm="{{ __('Start a new version? It copies the current content; approvals and sign-offs start again.') }}">{{ __('Start new version') }}</flux:button>
+                    <flux:button size="sm" variant="primary" wire:click="startNewVersion" wire:confirm="{{ __('Start a new version? It copies the current content and approvals; every required party signs off again.') }}">{{ __('Start new version') }}</flux:button>
                 @endif
             </x-slot>
         </flux:callout>

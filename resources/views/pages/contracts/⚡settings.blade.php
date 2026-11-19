@@ -407,7 +407,7 @@ new class extends Component {
             @endforeach
         </div>
         @if ($contract->isAgreed() && $this->versions->last()->id === $contract->id)
-            <flux:button variant="primary" wire:click="startNewVersion" wire:confirm="{{ __('Start a new version? It copies the current content; approvals and sign-offs start again.') }}">{{ __('Start new version') }}</flux:button>
+            <flux:button variant="primary" wire:click="startNewVersion" wire:confirm="{{ __('Start a new version? It copies the current content and approvals; every required party signs off again.') }}">{{ __('Start new version') }}</flux:button>
         @endif
     </div>
 </section>

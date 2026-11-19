@@ -21,6 +21,7 @@ use App\Actions\Steps\ReviseStep;
 use App\Enums\CommentKind;
 use App\Enums\ContractRole;
 use App\Enums\ContractState;
+use App\Models\ActivityEvent;
 use App\Models\Approval;
 use App\Models\Comment;
 use App\Models\ContractSignoff;
@@ -74,21 +75,29 @@ test('every write to an agreed contract is locked', function (string $write) {
     'attach party', 'set required approver', 'sign off', 'withdraw sign-off',
 ]);
 
-test('a new version starts in draft with the same content and parties, and no approvals or sign-offs', function () {
+test('a new version carries over the same content, parties and approvals, and starts ready for sign-off without sign-offs', function () {
+    // A withdrawn approval on the agreed version must not be carried over.
+    Approval::query()->create(['step_id' => $this->one->id, 'step_revision_id' => $this->one->current_revision_id, 'party_id' => $this->spare->party?->id, 'withdrawn_at' => now()]);
+
     $next = app(StartNewVersion::class)->handle($this->s->ownerActor(), $this->s->contract);
 
     $steps = Step::query()->with('currentRevision')->whereRelation('phase', 'contract_id', $next->id)->orderBy('position')->get();
+    $report = ContractReadiness::report($next);
+    $required = collect([$this->s->alpha->party?->id, $this->s->beta->party?->id])->sort()->values()->all();
 
     expect($next->version)->toBe(2)
         ->and($next->previous_version_id)->toBe($this->s->contract->id)
-        ->and(ContractReadiness::report($next)->state)->toBe(ContractState::Draft)
+        ->and($report->state)->toBe(ContractState::ReadyForSignoff)
+        ->and($report->outstanding)->toBe([])
         ->and($steps->map(fn (Step $step) => [$step->currentRevision?->title, $step->currentRevision?->number, $step->origin_step_id])->all())
         ->toBe([['One', 1, $this->one->id], ['Two', 1, $this->two->id]])
-        ->and(Approval::query()->whereIn('step_id', $steps->pluck('id'))->count())->toBe(0)
+        ->and($steps->map(fn (Step $step) => Approval::query()->active()->where('step_id', $step->id)->where('step_revision_id', $step->current_revision_id)->pluck('party_id')->sort()->values()->all())->all())
+        ->toBe([$required, $required])
+        ->and(Approval::query()->whereIn('step_id', $steps->pluck('id'))->count())->toBe(4)
         ->and(Comment::query()->whereIn('step_id', $steps->pluck('id'))->count())->toBe(0)
         ->and(ContractSignoff::query()->where('contract_id', $next->id)->count())->toBe(0)
-        ->and($next->requiredApprovers()->pluck('parties.id')->sort()->values()->all())
-        ->toBe(collect([$this->s->alpha->party?->id, $this->s->beta->party?->id])->sort()->values()->all());
+        ->and($next->requiredApprovers()->pluck('parties.id')->sort()->values()->all())->toBe($required)
+        ->and(ActivityEvent::query()->where('contract_id', $next->id)->pluck('type')->all())->toBe(['contract.ready']);
 });
 
 test('a version can be continued once, only when agreed, and only by an owner', function () {

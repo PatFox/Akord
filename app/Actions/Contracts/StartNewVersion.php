@@ -4,6 +4,7 @@ namespace App\Actions\Contracts;
 
 use App\Enums\ContractAbility;
 use App\Exceptions\InvalidActionException;
+use App\Models\Approval;
 use App\Models\Contract;
 use App\Models\ContractParty;
 use App\Models\Phase;
@@ -14,13 +15,16 @@ use App\Support\Actor;
 use App\Support\ContractTransaction;
 
 /**
- * Owner-only (D4): starts the next version of an agreed contract. Copies parties, roles, required approvers, phases and active steps (each as revision 1, keeping the original author); no approvals, sign-offs or comments. The new version starts in draft.
+ * Owner-only (D4): starts the next version of an agreed contract. Copies parties, roles, required approvers, phases
+ * and active steps (each as revision 1, keeping the original author). The approvals that counted on each step are
+ * carried over too, since the content is unchanged; withdrawn approvals, sign-offs and comments are not. An agreed
+ * contract had every step approved, so the new version starts ready for sign-off, recorded as `contract.ready` on it.
  */
 final class StartNewVersion
 {
     public function handle(Actor $actor, Contract $contract): Contract
     {
-        return ContractTransaction::run($contract, $actor, ContractAbility::Administer, function (Contract $contract, ActivityLog $log): Contract {
+        return ContractTransaction::run($contract, $actor, ContractAbility::Administer, function (Contract $contract, ActivityLog $log) use ($actor): Contract {
             if (! $contract->isAgreed()) {
                 throw new InvalidActionException('Only an agreed contract can get a new version.');
             }
@@ -70,10 +74,28 @@ final class StartNewVersion
                     ]);
 
                     $newStep->update(['current_revision_id' => $revision->id]);
+
+                    // Approvals that counted on the agreed content: active, for a revision with the same content hash.
+                    Approval::query()->active()
+                        ->where('step_id', $step->id)
+                        ->whereRelation('revision', 'content_hash', $source->content_hash)
+                        ->get()
+                        ->each(fn (Approval $approval) => Approval::query()->create([
+                            'step_id' => $newStep->id,
+                            'step_revision_id' => $revision->id,
+                            'party_id' => $approval->party_id,
+                            'user_id' => $approval->user_id,
+                        ]));
                 }
             }
 
             $log->record('contract.version_started', $next, ['version' => $next->version]);
+
+            // The new version is invisible to others until this commits, so its own log needs no lock of its own.
+            $report = ContractReadiness::report($next);
+            if ($report->isReady()) {
+                (new ActivityLog($next, $actor))->record('contract.ready', null, ['fingerprint' => $report->fingerprint]);
+            }
 
             return $next;
         }, allowWhenAgreed: true);
