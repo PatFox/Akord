@@ -13,7 +13,7 @@ use Laravel\Mcp\Server\Attributes\Name;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 
 #[Name('get_contract')]
-#[Description('Get a contract: phases, steps (current revision), required parties, sign-offs and the fingerprint. Set format to markdown for a readable export.')]
+#[Description('Get a contract: phases, steps (current revision), required parties, sign-offs and the fingerprint. Set format to markdown for the whole contract as one plan document.')]
 #[IsReadOnly]
 class GetContract extends AgentTool
 {
@@ -23,7 +23,7 @@ class GetContract extends AgentTool
             $v = $request->validate(['contract_id' => 'required|string', 'format' => 'nullable|in:json,markdown']);
 
             return ($v['format'] ?? 'json') === 'markdown'
-                ? ['content' => ['markdown' => $api->contractMarkdown($actor, $v['contract_id'])]]
+                ? ['content' => ['markdown' => $api->contractPlan($actor, $v['contract_id'])]]
                 : $api->contract($actor, $v['contract_id']);
         });
     }
@@ -35,7 +35,7 @@ class GetContract extends AgentTool
     {
         return [
             'contract_id' => $schema->string()->description('The contract id.')->required(),
-            'format' => $schema->string()->enum(['json', 'markdown'])->description('json (default) or markdown.'),
+            'format' => $schema->string()->enum(['json', 'markdown'])->description('json (default), or markdown for a plan document with every phase and step.'),
         ];
     }
 }

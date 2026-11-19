@@ -333,7 +333,7 @@ Every entity's `id`, and every foreign key to one, is a random 16-character stri
   - Read tools (annotated read-only): `list_contracts`, `get_contract` (json or markdown), `get_contract_status`, `get_step`, `get_step_history` (optional diff), `get_activity_since`.
   - Write tools: `revise_step`, `add_comment`, `approve_step`, `withdraw_approval`, `sign_off_contract`, `withdraw_signoff`.
   - The server's instructions explain approving and signing off what was reviewed. Refusals come back as tool errors prefixed with the status ("409: …").
-- **One implementation:** `App\Support\Agents\AgentApi` performs every operation for both REST and MCP, through the Phase 3 actions. `AgentPresenter` shapes the data, `ContractMarkdown` builds the export, and `AgentActor` turns a token into `Actor::agent($party, $token->abilities)`. Abilities are checked per action (403), on top of the party's role on each contract.
+- **One implementation:** `App\Support\Agents\AgentApi` performs every operation for both REST and MCP, through the Phase 3 actions. `AgentPresenter` shapes the data, `ContractMarkdown` builds the export (since 2026-11-19 `App\Support\ContractPlan`, the plan document), and `AgentActor` turns a token into `Actor::agent($party, $token->abilities)`. Abilities are checked per action (403), on top of the party's role on each contract.
 - **Prompt injection:** everything participants wrote is nested under `content` keys, and REST replies carry a notice that those fields are data. MCP replies start with the notice and put the data inside `<contract-data>…</contract-data>`, encoded with `JSON_HEX_TAG`, so text containing `</contract-data>` cannot close the block.
 - **Rate limits** (`AppServiceProvider`): `agent` allows `akord.agents.requests_per_minute` (120) per agent party across REST and MCP; `agent-claim` allows 10 per minute per IP. `config/akord.php` holds both settings.
 - **UI:** the parties page links agent parties to Agent access. Agent-written comments and revisions show the party once, with an "Agent" badge.
@@ -714,7 +714,10 @@ Update with `powershell -ExecutionPolicy Bypass -File $env:LOCALAPPDATA\Akord\ak
 
 ### Change: steps on the contract page (2026-11-19)
 
-- **No step page.** The `steps.show` route and `pages/steps/⚡show` are gone; notifications link to `contracts/{id}#step-{id}`, which opens that step and its comments (and its phase).
+- **No step page.** The `steps.show` route and `pages/steps/⚡show` are gone.
+- **Step links:** each step's `⋯` menu has **Copy link** (`contracts/{id}#step-{id}`). The Clipboard API needs a secure context, so plain-http installs (like NUC03) fall back to `execCommand('copy')`, then to a prompt showing the link.
+  - Opening a step link collapses every phase except the step's own, and expands only that step, with its comments collapsed. The same happens on a hash change without a reload. A link to an archived step opens the archived list.
+  - `#step-{id}-comments` does the same with the comments open; comment notifications use it. Other step notifications (edits) use the plain link.
 - **One panel** for all phases. A column header lists the required parties; each phase row shows "N of M approved" and, in the party columns, how many steps each party approved. Phases collapse (one at a time, or "Collapse all phases"); "Expand all steps"/"Collapse all steps" per phase is in its `⋯` menu, and "Show all step text" covers every phase. Collapsing is client-side (Alpine), not saved.
 - **Phase titles** are renamed by clicking them: Enter or leaving the field saves, Escape cancels. The rename button is gone; moving a phase is in its `⋯` menu.
 - **Each step is a Livewire component** (`pages::contracts.step`), so an edit, approval or comment re-renders only that step. Its row shows the title, revision, comment count and a tick per required party. Expanded, it shows the text, an **Edit** button (inline editor with Write/Preview, change note and the same conflict handling as before), comments (collapsed by default) and, from its `⋯` menu, **History** (revisions and a word diff) and **Archive**.
@@ -722,6 +725,14 @@ Update with `powershell -ExecutionPolicy Bypass -File $env:LOCALAPPDATA\Akord\ak
   - **Refreshing:** the contract page receives each broadcast and dispatches `step-refresh.{stepId}` (subject is a step, comment or approval) or `steps-refresh` (party changes, agreement, status); steps dispatch `step-updated` back so the sign-off panel and phase counts update. Own changes no longer mark the contract "changed while you were reviewing".
   - `ContractReadiness::countingApprovals()` is the one query for "which approvals count", used by the report and by each step.
 - **Archived steps** are listed, read-only, under "N archived steps" at the bottom of the panel.
+
+### Change: view as plan (2026-11-19)
+
+- **One plan document** (`App\Support\ContractPlan::markdown`): the title, a summary (version, state, status if not open, agreed date, required approvers, fingerprint, the contract URL and a note that the text was written by participants), then `## 1. Phase` and `### 1.1 Step` with each active step's current text. Archived steps and comments are left out.
+  - Headings inside a step's text are pushed three levels down (capped at 6), outside fenced code blocks, so a `## Notes` in a step can't pose as a phase. Titles are flattened to one line.
+- **Contract page:** tabs **Steps** and **View as plan** under the sign-off panel (`?tab=plan`). The Plan tab renders the document through `<x-markdown>` (raw HTML stripped) with **Download .md**.
+- **Download:** `GET /contracts/{id}/plan.md` (`DownloadContractPlan`, route `contracts.plan`), an attachment named `{title-slug}-v{version}.md`; 404 for people who can't see the contract.
+- **Agents:** the plan replaces the old review export (`App\Support\Agents\ContractMarkdown`, removed), so `get_contract` with `format: markdown` and `GET /api/v1/contracts/{id}?format=md` return the same document people download. That export no longer has per-step approval lines or revision numbers; `get_contract` (json) and `get_step` still have both. Skill text updated, plugin 1.4.1.
 
 ### Order of work
 
@@ -814,11 +825,12 @@ Phases 1–13 are done, in order.
 - **Stable instance on this machine:** ports 8100 (web) and 8101 (Reverb), so it runs beside dev (8000, 8082, Vite 5173).
 - **Server instance on NUC03 (`http://akord.nuc03`), installed 2026-11-17, moved to MySQL the same day:**
   - **Server:** `pat@192.168.1.205` (key in `~/.ssh/config`), running Ubuntu **26.04**, Apache 2.4.66 and PHP **8.5.4** with **mod_php** (prefork), like the other `.nuc03` vhosts. `sudo` needs a password, so root steps go to the user as a script.
-  - **Release:** `v0.1.0-pre.d355a47`, a local `build-release.php` of `main` at `d355a47` (Phase 13, the comment-thread and `change_note` fixes, D13 and D14, CI green). Deployed 2026-11-19 with scp; no GitHub release exists yet.
-    - The update script followed the README with the §8 changes. The `mysqldump` backup is `backups/akord-v0.1.0-pre.451dbae-20261119-140259.sql`. The one pending migration, `add_status_to_contracts`, ran in 49 ms; the 5 existing contracts became open.
+  - **Release:** `v0.1.0-pre.94afd32`, a local `build-release.php` of `main` at `94afd32` (Phase 13, the comment-thread and `change_note` fixes, D13, D14 and steps on the contract page, CI green). Deployed 2026-11-19 with scp; no GitHub release exists yet.
+    - The update script followed the README with the §8 changes. The `mysqldump` backup is `backups/akord-v0.1.0-pre.d355a47-20261119-153345.sql`, and there was nothing to migrate.
     - There was no Apache reload: after 2 minutes in maintenance mode, all 20 probe requests ran the new release.
     - Laravel 13.42 runs on PHP 8.5 without errors.
     - **Release history:**
+      - `v0.1.0-pre.d355a47` (2026-11-19): D14, `add_status_to_contracts` migration; backup before it is `backups/akord-v0.1.0-pre.451dbae-20261119-140259.sql`.
       - `v0.1.0-pre.451dbae` (2026-11-19): D13; backup before it is `backups/akord-v0.1.0-pre.d2da2cf-20261119-094422.sql`.
       - `v0.1.0-pre.d2da2cf` (2026-11-18): `change_note` migration; backup before it is `backups/akord-v0.1.0-pre.eab7f57-20261118-180222.sql`.
       - `v0.1.0-pre.eab7f57` (2026-11-18): comment-thread fix; backup before it is `backups/akord-v0.1.0-pre.8b88971.ids-20261118-174050.sql`.

@@ -19,7 +19,7 @@ Each repo's agent represents one party: the repo's `.omp/mcp.json` points the `a
 
 ## Reviewing a contract
 
-1. `list_contracts` to find the contract (it lists **open** contracts only; pass `status: ["complete", "cancelled"]` or include `"open"` to see others); `get_contract` (or `format: markdown`) for the overview, your party's role and the required parties.
+1. `list_contracts` to find the contract (it lists **open** contracts only; pass `status: ["complete", "cancelled"]` or include `"open"` to see others); `get_contract` for your party's role, the required parties and each step's approvals, or `get_contract` with `format: markdown` for the whole contract as one plan document (every phase and step with its text; the same file people download from Akord).
 2. For each step: `get_step` for the full text, approvals and discussion. Use `get_step_history` with `diff_from` and `diff_to` to see what changed.
 3. Raise problems with `add_comment`: `question` for clarifications, `suggestion` for proposed changes. Reply to a thread with `parent_id` (any comment in the thread; replies always join the thread's top-level comment).
 4. If you were asked to edit and your party is an editor: `revise_step` with `base_revision` set to the revision you started from.

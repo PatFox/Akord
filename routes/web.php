@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Agents\ConnectAgentController;
+use App\Http\Controllers\DownloadContractPlan;
 use Illuminate\Support\Facades\Route;
 
 Route::view('/', 'welcome')->name('home');
@@ -26,6 +27,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     Route::livewire('contracts/{contract}', 'pages::contracts.show')->name('contracts.show');
     Route::livewire('contracts/{contract}/settings', 'pages::contracts.settings')->name('contracts.settings');
+    Route::get('contracts/{contract}/plan.md', DownloadContractPlan::class)->name('contracts.plan');
 });
 
 require __DIR__.'/settings.php';

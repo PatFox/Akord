@@ -351,12 +351,29 @@ new class extends Component {
      x-data="{
          open: false,
          comments: false,
+         link: @js(route('contracts.show', $contract).'#step-'.$step->id),
+         {{-- A link to a step (#step-{id}, or #step-{id}-comments to open its comments) shows only that step. --}}
          reveal() {
-             if (location.hash !== '#' + this.$el.id) return;
-             this.open = true;
-             this.comments = true;
-             this.$el.closest('[data-phase]')?.dispatchEvent(new CustomEvent('reveal-phase'));
-             this.$nextTick(() => this.$el.scrollIntoView({ block: 'start' }));
+             if (! location.hash.startsWith('#step-')) return;
+             const mine = location.hash === '#' + this.$el.id || location.hash === '#' + this.$el.id + '-comments';
+             this.open = mine;
+             this.comments = mine && location.hash.endsWith('-comments');
+             if (mine) this.$nextTick(() => this.$el.scrollIntoView({ block: 'start' }));
+         },
+         {{-- The Clipboard API needs a secure context; plain-http installs (like a LAN server) fall back to execCommand. --}}
+         copyLink() {
+             const done = () => this.$flux.toast(@js(__('Link to this step copied.')), { variant: 'success' });
+             if (navigator.clipboard && window.isSecureContext) {
+                 navigator.clipboard.writeText(this.link).then(done, () => window.prompt(@js(__('Copy this link:')), this.link));
+                 return;
+             }
+             const field = Object.assign(document.createElement('textarea'), { value: this.link });
+             field.style.cssText = 'position: fixed; opacity: 0';
+             document.body.appendChild(field);
+             field.select();
+             const copied = document.execCommand('copy');
+             field.remove();
+             copied ? done() : window.prompt(@js(__('Copy this link:')), this.link);
          },
      }"
      x-init="reveal()" x-on:hashchange.window="reveal()"
@@ -406,6 +423,7 @@ new class extends Component {
                     @if ($this->canEdit)
                         <flux:menu.item icon="pencil" wire:click="edit" x-on:click="open = true">{{ __('Edit') }}</flux:menu.item>
                     @endif
+                    <flux:menu.item icon="link" x-on:click="copyLink()" data-test="copy-step-link">{{ __('Copy link') }}</flux:menu.item>
                     <flux:menu.item icon="clock" wire:click="toggleHistory" x-on:click="open = true">{{ $showHistory ? __('Hide history') : __('History') }}</flux:menu.item>
                     @if ($this->canEdit)
                         <flux:menu.separator />

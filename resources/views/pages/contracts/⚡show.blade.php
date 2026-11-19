@@ -24,6 +24,7 @@ use App\Models\Phase;
 use App\Models\Step;
 use App\Support\ActivityDescription;
 use App\Support\ContractAccess;
+use App\Support\ContractPlan;
 use App\Support\RandomId;
 use App\Support\ReadinessReport;
 use Illuminate\Support\Collection;
@@ -31,6 +32,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\On;
+use Livewire\Attributes\Url;
 use Livewire\Component;
 
 new class extends Component {
@@ -60,6 +62,10 @@ new class extends Component {
     public string $phaseTitle = '';
 
     public bool $showArchived = false;
+
+    /** "steps" (the working view) or "plan" (the whole contract as one document); ?tab=plan in the URL. */
+    #[Url(except: 'steps')]
+    public string $tab = 'steps';
 
     public function mount(Contract $contract): void
     {
@@ -428,11 +434,23 @@ new class extends Component {
         $this->attempt(fn () => app(ReorderSteps::class)->handle($this->actor(), $target, $ids));
     }
 
+    /**
+     * The plan document (App\Support\ContractPlan), only built on the Plan tab.
+     */
+    #[Computed]
+    public function plan(): string
+    {
+        return ContractPlan::markdown($this->contract, $this->report);
+    }
+
     public function render()
     {
         // Actions may have changed the contract during this request.
         $this->contract->refresh();
-        unset($this->report, $this->changeDescriptions, $this->phases, $this->requiredParties, $this->approved, $this->stageCounts, $this->archivedCount, $this->archivedSteps, $this->canEdit, $this->actingIsRequired, $this->actingHasSignedOff, $this->nextVersion, $this->versions, $this->canSetStatus);
+        unset($this->report, $this->changeDescriptions, $this->phases, $this->requiredParties, $this->approved, $this->stageCounts, $this->archivedCount, $this->archivedSteps, $this->canEdit, $this->actingIsRequired, $this->actingHasSignedOff, $this->nextVersion, $this->versions, $this->canSetStatus, $this->plan);
+        if (! in_array($this->tab, ['steps', 'plan'], true)) {
+            $this->tab = 'steps';
+        }
         if (! $this->changedSinceReview) {
             $this->reviewedFingerprint = $this->report->fingerprint;
         }
@@ -588,9 +606,31 @@ new class extends Component {
         <flux:text size="xs" class="font-mono">{{ __('Reviewed state') }}: {{ substr($this->report->fingerprint, 0, 12) }}</flux:text>
     </flux:card>
 
+    {{-- Tabs: the working view, or the contract as one plan document. --}}
+    <div role="tablist" class="flex gap-6 border-b border-zinc-200 dark:border-zinc-700" data-test="contract-tabs">
+        @foreach (['steps' => __('Steps'), 'plan' => __('View as plan')] as $key => $label)
+            <button type="button" role="tab" aria-selected="{{ $tab === $key ? 'true' : 'false' }}" wire:click="$set('tab', '{{ $key }}')"
+                    @class(['-mb-px border-b-2 px-1 pb-2 text-sm font-medium', 'border-zinc-800 text-zinc-900 dark:border-white dark:text-white' => $tab === $key, 'border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200' => $tab !== $key])>
+                {{ $label }}
+            </button>
+        @endforeach
+    </div>
+
+    @if ($tab === 'plan')
+        <flux:card class="space-y-4" data-test="plan">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <flux:text size="sm">{{ __('Every phase and step, as one document. Archived steps are left out.') }}</flux:text>
+                <flux:button size="sm" icon="arrow-down-tray" :href="route('contracts.plan', $contract)" data-test="download-plan">{{ __('Download .md') }}</flux:button>
+            </div>
+            <x-markdown :source="$this->plan" class="border-t border-zinc-100 pt-4 dark:border-zinc-700" />
+        </flux:card>
+    @else
     {{-- Phases and steps in one panel. Columns line up with each step's row in pages::contracts.step. --}}
     <style>{!! \App\Support\RevisionDiff::styles() !!}</style>
-    <flux:card class="space-y-2 overflow-x-auto" data-test="steps-panel">
+    {{-- A link to an archived step opens the archived list, so the step can show itself. --}}
+    <flux:card class="space-y-2 overflow-x-auto" data-test="steps-panel"
+               x-data="{ showLinkedArchived() { const m = location.hash.match(/^#(step-[0-9a-z]+)/); if (m && ! document.getElementById(m[1]) && @js($this->archivedCount > 0)) $wire.set('showArchived', true) } }"
+               x-init="showLinkedArchived()" x-on:hashchange.window="showLinkedArchived()">
         <div class="flex flex-wrap items-center justify-between gap-2" x-data="{ phasesOpen: true, stepsOpen: false }">
             <flux:heading size="lg" level="2">{{ __('Steps') }}</flux:heading>
             <div class="flex gap-1">
@@ -618,7 +658,8 @@ new class extends Component {
             @forelse ($this->phases as $phase)
                 @php($counts = $this->stageCounts[$phase->id])
                 <section wire:key="phase-{{ $phase->id }}" data-phase="{{ $phase->id }}" data-test="phase"
-                         x-data="{ open: true }" x-on:phases-toggle.window="open = $event.detail.open" x-on:reveal-phase="open = true"
+                         x-data="{ open: true, focusLinked() { const m = location.hash.match(/^#(step-[0-9a-z]+)/); if (m) this.open = this.$el.querySelector('#' + m[1]) !== null } }"
+                         x-init="focusLinked()" x-on:hashchange.window="focusLinked()" x-on:phases-toggle.window="open = $event.detail.open"
                          class="border-b border-zinc-200 last:border-0 dark:border-zinc-700">
                     {{-- Phase header: title (click to rename), progress, per-party counts. --}}
                     <div class="flex items-center gap-2 bg-zinc-50 py-2 dark:bg-zinc-800/60">
@@ -740,4 +781,5 @@ new class extends Component {
             </div>
         @endif
     </flux:card>
+    @endif
 </section>

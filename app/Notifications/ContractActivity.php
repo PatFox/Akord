@@ -139,10 +139,10 @@ class ContractActivity extends Notification implements ShouldQueue
             default => null,
         };
 
-        // Steps live on the contract page; the anchor opens the step and its comments.
+        // Steps live on the contract page. The anchor shows only that step; for a comment, with its comments open.
         return $step === null
             ? route('contracts.show', $this->activity->contract)
-            : route('contracts.show', $this->activity->contract).'#step-'.$step->id;
+            : route('contracts.show', $this->activity->contract).'#step-'.$step->id.($subject instanceof Comment ? '-comments' : '');
     }
 
     private function escape(string $text): string

@@ -50,7 +50,7 @@ test('a comment notifies the other people on the contract, not the author, unatt
 
     expect(notifiedFor('comment.added'))->toEqualCanonicalizing([$this->s->alpha->user->id, $this->gamma->user->id]);
     Notification::assertSentTo($this->s->alpha->user, ContractActivity::class, fn (ContractActivity $n, array $channels) => $channels === ['database', 'mail']
-        && $n->toArray($this->s->alpha->user)['url'] === route('contracts.show', $this->s->contract).'#step-'.$step->id);
+        && $n->toArray($this->s->alpha->user)['url'] === route('contracts.show', $this->s->contract).'#step-'.$step->id.'-comments');
 });
 
 test('a content edit tells the parties whose approval it cancelled; a spacing-only edit tells nobody', function () {
@@ -67,7 +67,9 @@ test('a content edit tells the parties whose approval it cancelled; a spacing-on
         ->and(notifiedFor('step.revised', approvalCancelled: false))->toBe([$this->gamma->user->id])
         ->and(ActivityEvent::query()->where('type', 'step.revised')->orderByDesc('position')->first()->payload['cancelled_party_ids'])->toBe([$this->s->beta->party->id]);
 
-    Notification::assertSentTo($this->s->beta->user, ContractActivity::class, fn (ContractActivity $n) => str_contains((string) $n->toArray($this->s->beta->user)['detail'], 'approval of this step was cancelled'));
+    // An edit links to the step itself; a comment (above) also opens its comments.
+    Notification::assertSentTo($this->s->beta->user, ContractActivity::class, fn (ContractActivity $n) => str_contains((string) $n->toArray($this->s->beta->user)['detail'], 'approval of this step was cancelled')
+        && $n->toArray($this->s->beta->user)['url'] === route('contracts.show', $this->s->contract).'#step-'.$step->id);
 });
 
 test('ready for sign-off goes to required parties only; agreement goes to everyone but the final signer', function () {
@@ -138,7 +140,7 @@ test('emails escape participants’ text so a title cannot add a link', function
 
     expect($html)->not->toContain('href="https://evil.example"')
         ->and($html)->toContain('Click here')
-        ->and($html)->toContain(route('contracts.show', $this->s->contract).'#step-'.$step->id);
+        ->and($html)->toContain(route('contracts.show', $this->s->contract).'#step-'.$step->id.'-comments');
 });
 
 test('the notifications page lists, opens and marks notifications read', function () {
@@ -156,7 +158,7 @@ test('the notifications page lists, opens and marks notifications read', functio
 
     Livewire::actingAs($alice)->test('pages::notifications.index')
         ->call('open', $notification->id)
-        ->assertRedirect(route('contracts.show', $this->s->contract).'#step-'.$step->id);
+        ->assertRedirect(route('contracts.show', $this->s->contract).'#step-'.$step->id.'-comments');
 
     expect($notification->fresh()->read_at)->not->toBeNull();
 

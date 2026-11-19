@@ -27,6 +27,7 @@ use App\Models\StepRevision;
 use App\Support\ActivitySequencer;
 use App\Support\Actor;
 use App\Support\ContractAccess;
+use App\Support\ContractPlan;
 use App\Support\RevisionDiff;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -84,11 +85,14 @@ final class AgentApi
         return $this->contract($actor, $contract->id);
     }
 
-    public function contractMarkdown(Actor $actor, string $contractId): string
+    /**
+     * The contract as a Markdown plan document, the same one the contract page shows and downloads.
+     */
+    public function contractPlan(Actor $actor, string $contractId): string
     {
         $contract = $this->visibleContract($actor, $contractId);
 
-        return ContractMarkdown::export($contract, ContractReadiness::report($contract));
+        return ContractPlan::markdown($contract, ContractReadiness::report($contract));
     }
 
     /**

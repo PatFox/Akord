@@ -33,14 +33,14 @@ class ContractController extends AgentApiController
     }
 
     /**
-     * GET /api/v1/contracts/{id}[?format=md|json]
+     * GET /api/v1/contracts/{id}[?format=md|json]: md is the plan document the contract page shows and downloads.
      */
     public function show(Request $request, string $contract): JsonResponse|Response
     {
         $format = $request->validate(['format' => ['nullable', 'in:json,md']])['format'] ?? 'json';
 
         if ($format === 'md') {
-            return response($this->api->contractMarkdown($this->actor($request), $contract), 200, ['Content-Type' => 'text/markdown; charset=UTF-8']);
+            return response($this->api->contractPlan($this->actor($request), $contract), 200, ['Content-Type' => 'text/markdown; charset=UTF-8']);
         }
 
         return $this->respond($this->api->contract($this->actor($request), $contract));

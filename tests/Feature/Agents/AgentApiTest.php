@@ -27,11 +27,17 @@ test('agents read contracts and steps with participant text under "content" and 
         ->assertJsonPath('data.your_approval', 'none');
 });
 
-test('the Markdown export contains the steps and their approval state', function () {
+test('agents get the plan document over REST and MCP, the same one the contract page downloads', function () {
     $response = $this->agent->api('GET', "contracts/{$this->id}?format=md")->assertOk();
+    [$error, $text] = $this->agent->tool('get_contract', ['contract_id' => $this->id, 'format' => 'markdown']);
 
     expect($response->headers->get('Content-Type'))->toContain('text/markdown')
-        ->and($response->getContent())->toContain('### 1. Build the API (revision 1)')->toContain('Endpoints for **contracts**.');
+        ->and($response->getContent())->toContain('## 1. Phase one')->toContain('### 1.1 Build the API')->toContain('Endpoints for **contracts**.')
+        ->and($error)->toBeFalse()
+        ->and($text)->toContain('### 1.1 Build the API');
+
+    $this->actingAs($this->s->owner)->get(route('contracts.plan', $this->s->contract))->assertOk()
+        ->assertStreamedContent($response->getContent());
 });
 
 test('approving needs the reviewed revision; a content change since then is a conflict', function () {
