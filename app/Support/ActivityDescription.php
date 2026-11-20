@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Models\ActivityEvent;
 use App\Models\Approval;
+use App\Models\Checklist;
 use App\Models\ChecklistItem;
 use App\Models\Comment;
 use App\Models\Contract;
@@ -64,13 +65,28 @@ final class ActivityDescription
             'invitation.accepted' => __(':actor joined :subject', compact('actor', 'subject')),
             'contract.human_signoff_changed' => __(':actor changed the human sign-off rule', compact('actor')),
             'checklist.created' => ($payload['replaced'] ?? false)
-                ? __(':actor replaced the checklist', compact('actor'))
-                : __(':actor created the checklist', compact('actor')),
-            'checklist.item_checked' => __(':actor ticked :subject', compact('actor', 'subject')),
-            'checklist.item_unchecked' => __(':actor unticked :subject', compact('actor', 'subject')),
-            'checklist.item_added' => __(':actor added :subject to the checklist', compact('actor', 'subject')),
+                ? __(':actor replaced the checklist :name', ['actor' => $actor, 'name' => self::checklistName($event)])
+                : __(':actor created the checklist :name', ['actor' => $actor, 'name' => self::checklistName($event)]),
+            'checklist.item_checked' => __(':actor ticked :subject in :name', ['actor' => $actor, 'subject' => $subject, 'name' => self::checklistName($event)]),
+            'checklist.item_unchecked' => __(':actor unticked :subject in :name', ['actor' => $actor, 'subject' => $subject, 'name' => self::checklistName($event)]),
+            'checklist.item_added' => __(':actor added :subject to :name', ['actor' => $actor, 'subject' => $subject, 'name' => self::checklistName($event)]),
             default => __(':actor made a change', compact('actor')),
         };
+    }
+
+    /**
+     * “API team”, from the payload (creation) or the item's checklist; "the checklist" when neither is known any more.
+     */
+    private static function checklistName(ActivityEvent $event): string
+    {
+        $subject = $event->subject;
+        $name = match (true) {
+            $subject instanceof Checklist => $subject->name,
+            $subject instanceof ChecklistItem => $subject->stage?->checklist?->name,
+            default => $event->payload['name'] ?? null,
+        };
+
+        return is_string($name) ? '“'.$name.'”' : __('the checklist');
     }
 
     /**

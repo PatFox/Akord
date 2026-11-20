@@ -358,7 +358,11 @@ new class extends Component {
              const mine = location.hash === '#' + this.$el.id || location.hash === '#' + this.$el.id + '-comments';
              this.open = mine;
              this.comments = mine && location.hash.endsWith('-comments');
-             if (mine) this.$nextTick(() => this.$el.scrollIntoView({ block: 'start' }));
+             if (mine) {
+                 {{-- Its phase may have closed while the step was hidden by a filter. --}}
+                 this.$el.closest('[data-phase]')?.dispatchEvent(new CustomEvent('reveal-phase'));
+                 this.$nextTick(() => this.$el.scrollIntoView({ block: 'start' }));
+             }
          },
          {{-- The Clipboard API needs a secure context; plain-http installs (like a LAN server) fall back to execCommand. --}}
          copyLink() {
@@ -380,11 +384,12 @@ new class extends Component {
      x-on:steps-toggle.window="if ($event.detail.phase === null || $el.closest('[data-phase]')?.dataset.phase === $event.detail.phase) open = $event.detail.open">
     {{-- The row: title, revision, comments and one tick per required party, aligned with the column header. --}}
     <div class="flex items-center gap-2 py-2">
-        <button type="button" class="flex min-w-0 flex-1 items-center gap-1.5 text-start" x-on:click="open = ! open" x-bind:aria-expanded="open">
-            <flux:icon.chevron-right variant="micro" class="shrink-0 text-zinc-400 transition-transform" x-bind:class="open && 'rotate-90'" />
-            <span class="truncate font-medium">{{ $this->current->title }}</span>
+        {{-- Titles wrap (anywhere, for long paths), up to three lines with an ellipsis while collapsed; in full when open. --}}
+        <button type="button" class="flex min-w-0 flex-1 items-start gap-1.5 text-start" x-on:click="open = ! open" x-bind:aria-expanded="open" title="{{ $this->current->title }}">
+            <flux:icon.chevron-right variant="micro" class="mt-0.5 shrink-0 text-zinc-400 transition-transform" x-bind:class="open && 'rotate-90'" />
+            <span class="min-w-0 font-medium wrap-anywhere line-clamp-3" x-bind:class="open && 'line-clamp-none'" data-test="step-title">{{ $this->current->title }}</span>
             @if ($step->isArchived())
-                <flux:badge size="sm" color="zinc" icon="archive-box">{{ __('Archived') }}</flux:badge>
+                <flux:badge size="sm" color="zinc" icon="archive-box" class="shrink-0">{{ __('Archived') }}</flux:badge>
             @endif
         </button>
         <span class="w-10 shrink-0 text-center text-xs text-zinc-500" title="{{ __('Revision :n', ['n' => $this->current->number]) }}">r{{ $this->current->number }}</span>

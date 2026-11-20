@@ -16,18 +16,24 @@ use App\Support\ContractTransaction;
 
 /**
  * Creates (or replaces) a contract version's checklist: stages of items, each optionally linked to the contract step
- * it came from. Without stages, it copies the contract's phases and active steps. Needs the edit ability; works on
- * agreed versions (that is when the work happens) but not on complete or cancelled ones. Replacing a checklist with
- * ticked items needs $replace.
+ * it came from. Without stages, it copies the contract's phases and active steps. A version can have several, each
+ * named; creating one with an existing name (ignoring case) replaces it, which needs $replace if items are ticked.
+ * Needs the edit ability; works on agreed versions (that is when the work happens) but not on complete or cancelled
+ * ones.
  */
 final class CreateChecklist
 {
     /**
      * @param  list<array{title: string, items: list<array{title: string, notes?: string|null, step_id?: string|null}>}>|null  $stages
      */
-    public function handle(Actor $actor, Contract $contract, ?array $stages = null, bool $replace = false): Checklist
+    public function handle(Actor $actor, Contract $contract, string $name, ?array $stages = null, bool $replace = false): Checklist
     {
-        return ContractTransaction::run($contract, $actor, ContractAbility::Edit, function (Contract $contract, ActivityLog $log) use ($actor, $stages, $replace): Checklist {
+        $name = trim((string) preg_replace('/\s+/', ' ', $name));
+        if ($name === '' || mb_strlen($name) > 60) {
+            throw new InvalidActionException('A checklist needs a name of up to 60 characters.');
+        }
+
+        return ContractTransaction::run($contract, $actor, ContractAbility::Edit, function (Contract $contract, ActivityLog $log) use ($actor, $name, $stages, $replace): Checklist {
             ChecklistInput::ensureOpen($contract);
 
             $stages ??= $this->fromContract($contract);
@@ -36,16 +42,20 @@ final class CreateChecklist
                 throw new InvalidActionException('A checklist can have at most '.ChecklistInput::MAX_ITEMS.' items.');
             }
 
-            $existing = Checklist::query()->where('contract_id', $contract->getKey())->first();
+            // The same name, ignoring case (MySQL compares case-insensitively, SQLite does not), is the same checklist.
+            $existing = Checklist::query()->where('contract_id', $contract->getKey())->whereRaw('lower(name) = ?', [mb_strtolower($name)])->first();
             if ($existing !== null) {
                 if (! $replace && $existing->items()->whereNotNull('checked_at')->exists()) {
-                    throw new InvalidActionException('This contract already has a checklist with ticked items. Pass replace to start a new one.');
+                    throw new InvalidActionException("The checklist \"{$existing->name}\" has ticked items. Pass replace to start it again.");
                 }
                 $existing->delete();
+            } elseif (Checklist::query()->where('contract_id', $contract->getKey())->count() >= ChecklistInput::MAX_CHECKLISTS) {
+                throw new InvalidActionException('A contract can have at most '.ChecklistInput::MAX_CHECKLISTS.' checklists.');
             }
 
             $checklist = Checklist::query()->create([
                 'contract_id' => $contract->getKey(),
+                'name' => $name,
                 'created_by_party_id' => ContractAccess::actingParty($actor)->getKey(),
                 'created_by_user_id' => $actor->user?->getKey(),
             ]);
@@ -63,7 +73,7 @@ final class CreateChecklist
                 }
             }
 
-            $log->record('checklist.created', $checklist, ['stages' => count($stages), 'items' => $itemCount, 'replaced' => $existing !== null]);
+            $log->record('checklist.created', $checklist, ['name' => $name, 'stages' => count($stages), 'items' => $itemCount, 'replaced' => $existing !== null]);
 
             return $checklist;
         }, allowWhenLocked: true);

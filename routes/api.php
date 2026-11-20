@@ -36,9 +36,9 @@ Route::prefix('v1')->group(function () {
         Route::post('contracts/{contract}/phases', [PhaseController::class, 'store'])->where('contract', RandomId::PATTERN);
         Route::post('contracts/{contract}/phases/{phase}/steps', [PhaseController::class, 'storeStep'])->where(['contract' => RandomId::PATTERN, 'phase' => RandomId::PATTERN]);
 
-        Route::prefix('contracts/{contract}/checklist')->where(['contract' => RandomId::PATTERN, 'stage' => RandomId::PATTERN, 'item' => RandomId::PATTERN])->group(function () {
-            Route::get('/', [ChecklistController::class, 'show']);
-            Route::put('/', [ChecklistController::class, 'store']);
+        Route::prefix('contracts/{contract}/checklists')->where(['contract' => RandomId::PATTERN, 'stage' => RandomId::PATTERN, 'item' => RandomId::PATTERN])->group(function () {
+            Route::get('/', [ChecklistController::class, 'index']);
+            Route::post('/', [ChecklistController::class, 'store']);
             Route::post('stages/{stage}/items', [ChecklistController::class, 'storeItem']);
             Route::post('items/{item}/check', [ChecklistController::class, 'check']);
             Route::post('items/{item}/uncheck', [ChecklistController::class, 'uncheck']);

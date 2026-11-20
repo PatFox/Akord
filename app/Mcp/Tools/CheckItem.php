@@ -12,7 +12,7 @@ use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 
 #[Name('check_item')]
-#[Description('Tick a checklist item once its work is done (item ids are in get_checklist). Needs an editor party; 423 if the contract is complete or cancelled.')]
+#[Description('Tick a checklist item once its work is done (item ids are in get_checklists). Needs an editor party; 423 if the contract is complete or cancelled.')]
 class CheckItem extends AgentTool
 {
     public function handle(Request $request): Response

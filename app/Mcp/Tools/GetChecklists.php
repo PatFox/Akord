@@ -12,17 +12,17 @@ use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 
-#[Name('get_checklist')]
-#[Description('Get a contract\'s working checklist: stages of items, each ticked or not (who and when), with done/total counts. checklist is null if there is none yet.')]
+#[Name('get_checklists')]
+#[Description('Get a contract\'s working checklists (a contract can have several, each named, e.g. one per team): stages of items, each ticked or not (who and when), with done/total counts. An empty list if there are none yet.')]
 #[IsReadOnly]
-class GetChecklist extends AgentTool
+class GetChecklists extends AgentTool
 {
     public function handle(Request $request): Response
     {
         return $this->run($request, function (AgentApi $api, Actor $actor) use ($request) {
             $v = $request->validate(['contract_id' => 'required|string']);
 
-            return $api->checklist($actor, $v['contract_id']);
+            return $api->checklists($actor, $v['contract_id']);
         });
     }
 

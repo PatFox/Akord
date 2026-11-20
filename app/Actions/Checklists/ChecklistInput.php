@@ -15,14 +15,17 @@ final class ChecklistInput
 {
     public const MAX_ITEMS = 500;
 
+    public const MAX_CHECKLISTS = 20;
+
     /**
-     * Validation rules for a checklist's stages, as sent to create_checklist / PUT checklist.
+     * Validation rules for a checklist, as sent to create_checklist / POST checklists.
      *
      * @return array<string, list<string>>
      */
     public static function rules(): array
     {
         return [
+            'name' => ['required', 'string', 'max:60'],
             'stages' => ['nullable', 'list', 'max:100'],
             'stages.*.title' => ['required', 'string', 'max:200'],
             'stages.*.items' => ['present', 'list', 'max:'.self::MAX_ITEMS],

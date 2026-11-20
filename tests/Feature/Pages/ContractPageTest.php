@@ -84,6 +84,46 @@ test('each phase shows how many steps are approved, overall and per required par
         ->and($counts['approved'])->toBe(1);
 });
 
+test('the step filter keeps steps missing any required approval, or the acting party\'s; dragging is off while filtering', function () {
+    $done = $this->s->step('Done');
+    $alphaOnly = $this->s->step('Alpha approved');
+    $betaOnly = $this->s->step('Beta approved');
+    $this->s->approveAll($done);
+    $this->s->approve($this->s->alpha, $alphaOnly);
+    $this->s->approve($this->s->beta, $betaOnly);
+    $shown = function (string $show, $actor): array {
+        test()->actingAs($actor->user);
+
+        return array_keys(Livewire::withQueryParams(['show' => $show])->test('pages::contracts.show', ['contract' => $this->s->contract])->instance()->shownStepIds ?? []);
+    };
+
+    expect(contractPage($this->s, $this->s->alpha)->instance()->shownStepIds)->toBeNull()
+        ->and($shown('unapproved', $this->s->alpha))->toEqualCanonicalizing([$alphaOnly->id, $betaOnly->id])
+        ->and($shown('mine', $this->s->alpha))->toBe([$betaOnly->id])
+        ->and($shown('mine', $this->s->beta))->toBe([$alphaOnly->id]);
+
+    $this->actingAs($this->s->alpha->user);
+    Livewire::withQueryParams(['show' => 'unapproved'])->test('pages::contracts.show', ['contract' => $this->s->contract])
+        ->assertDontSeeHtml('wire:sort="sortStep"')
+        ->set('show', 'all')->assertSeeHtml('wire:sort="sortStep"');
+
+    // "Awaiting me" needs a required approver; others fall back to all steps.
+    $viewer = $this->s->party(ContractRole::Viewer);
+    $this->actingAs($viewer->user);
+    Livewire::withQueryParams(['show' => 'mine'])->test('pages::contracts.show', ['contract' => $this->s->contract])
+        ->assertSet('show', 'all')->assertDontSee('Awaiting me');
+});
+
+test('when every step is approved, the filter keeps only the phase headers and says so', function () {
+    $this->s->approveAll($this->s->step('Only'));
+
+    $this->actingAs($this->s->alpha->user);
+    Livewire::withQueryParams(['show' => 'unapproved'])->test('pages::contracts.show', ['contract' => $this->s->contract])
+        ->assertSee('Every step is approved by every required party.')
+        ->assertSeeHtml('data-test="phase-title"')
+        ->assertDontSeeHtml('wire:key="step-');
+});
+
 test('a person in two parties chooses which one they act for, but only among their own', function () {
     $user = $this->s->alpha->user;
     $second = Party::factory()->for($this->s->organisation)->create(['name' => 'Second']);

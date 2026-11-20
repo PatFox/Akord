@@ -83,7 +83,9 @@ test('a content change while reviewing holds sign-off until the person acknowled
     $added = app(CreateStep::class)->handle($otherEditor, $this->s->phase, 'Late step', 'Added meanwhile.');
     deliverActivitySince($page, $this->s, $opened)
         ->assertSee('Contract changed; review again')
-        ->assertSee('added step “Late step”');
+        ->assertSee('added step “Late step”')
+        // The change links to the step on the page.
+        ->assertSeeHtml('href="#step-'.$added->id.'"');
 
     $this->s->approveAll($added);
     $page->call('signOff');
@@ -123,8 +125,8 @@ test('the contract page passes an activity on to the step it concerns, every ste
     // A new checklist appears as a tab with its count, and doesn't hold sign-off (the change above is acknowledged first).
     $page->call('reviewAgain');
     $opened = lastActivityPosition($this->s);
-    app(CreateChecklist::class)->handle($this->s->party(ContractRole::Editor), $this->s->contract);
+    app(CreateChecklist::class)->handle($this->s->party(ContractRole::Editor), $this->s->contract, 'API team');
     deliverActivitySince($page, $this->s, $opened)->assertDispatched('checklist-refresh')
-        ->assertSeeHtml('data-test="tab-checklist"')->assertSee('0/1')
+        ->assertSee('Checklist: API team')->assertSee('0/1')
         ->assertDontSee('Contract changed; review again');
 });

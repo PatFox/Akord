@@ -298,24 +298,26 @@ final class AgentApi
     }
 
     /**
-     * @return array{checklist: array<string, mixed>|null}
+     * Every checklist of the contract version, oldest first (then by name: timestamps are to the second).
+     *
+     * @return array{checklists: list<array<string, mixed>>}
      */
-    public function checklist(Actor $actor, string $contractId): array
+    public function checklists(Actor $actor, string $contractId): array
     {
-        $checklist = Checklist::query()->where('contract_id', $this->visibleContract($actor, $contractId)->id)->first();
+        $checklists = Checklist::query()->where('contract_id', $this->visibleContract($actor, $contractId)->id)->orderBy('created_at')->orderBy('name')->get();
 
-        return ['checklist' => $checklist === null ? null : AgentPresenter::checklist($checklist)];
+        return ['checklists' => array_values($checklists->map(fn (Checklist $checklist) => AgentPresenter::checklist($checklist))->all())];
     }
 
     /**
      * @param  list<array{title: string, items: list<array{title: string, notes?: string|null, step_id?: string|null}>}>|null  $stages
-     * @return array{checklist: array<string, mixed>|null}
+     * @return array{checklist: array<string, mixed>}
      */
-    public function createChecklist(Actor $actor, string $contractId, ?array $stages, bool $replace): array
+    public function createChecklist(Actor $actor, string $contractId, string $name, ?array $stages, bool $replace): array
     {
-        app(CreateChecklist::class)->handle($actor, $this->visibleContract($actor, $contractId), $stages, $replace);
+        $checklist = app(CreateChecklist::class)->handle($actor, $this->visibleContract($actor, $contractId), $name, $stages, $replace);
 
-        return $this->checklist($actor, $contractId);
+        return ['checklist' => AgentPresenter::checklist($checklist)];
     }
 
     /**

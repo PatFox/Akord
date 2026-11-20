@@ -13,7 +13,7 @@ use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 
 #[Name('add_checklist_item')]
-#[Description('Add an item at the end of a checklist stage, for work found along the way (stage ids are in get_checklist). Needs an editor party.')]
+#[Description('Add an item at the end of a checklist stage, for work found along the way (stage ids are in get_checklists). Needs an editor party.')]
 class AddChecklistItem extends AgentTool
 {
     public function handle(Request $request): Response

@@ -16,7 +16,7 @@ test('the MCP server lists its twenty-three tools in one page', function () {
         'list_contracts', 'get_contract', 'get_contract_status', 'get_step', 'get_step_history', 'get_activity_since',
         'create_contract', 'revise_step', 'create_step', 'move_step', 'create_phase', 'archive_step',
         'add_comment', 'approve_step', 'withdraw_approval', 'sign_off_contract', 'withdraw_signoff', 'set_contract_status',
-        'get_checklist', 'create_checklist', 'check_item', 'uncheck_item', 'add_checklist_item',
+        'get_checklists', 'create_checklist', 'check_item', 'uncheck_item', 'add_checklist_item',
     ]);
 });
 
@@ -57,10 +57,10 @@ test('list_contracts shows open contracts by default and others on request; set_
 test('agents create and tick a checklist over MCP', function () {
     $args = ['contract_id' => $this->s->contract->id];
 
-    [$error] = $this->agent->tool('create_checklist', [...$args, 'stages' => [['title' => 'Build', 'items' => [['title' => 'Routes']]]]]);
+    [$error] = $this->agent->tool('create_checklist', [...$args, 'name' => 'API team', 'stages' => [['title' => 'Build', 'items' => [['title' => 'Routes']]]]]);
     $item = ChecklistItem::query()->sole();
     [$checkError] = $this->agent->tool('check_item', [...$args, 'item_id' => $item->id]);
-    [, $text] = $this->agent->tool('get_checklist', $args);
+    [, $text] = $this->agent->tool('get_checklists', $args);
 
     expect($error)->toBeFalse()->and($checkError)->toBeFalse()
         ->and($item->fresh()?->isChecked())->toBeTrue()

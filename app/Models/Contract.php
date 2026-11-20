@@ -217,11 +217,11 @@ class Contract extends Model
     }
 
     /**
-     * @return HasOne<Checklist, $this>
+     * @return HasMany<Checklist, $this>
      */
-    public function checklist(): HasOne
+    public function checklists(): HasMany
     {
-        return $this->hasOne(Checklist::class);
+        return $this->hasMany(Checklist::class);
     }
 
     /**

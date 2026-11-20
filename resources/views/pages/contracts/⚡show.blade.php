@@ -64,9 +64,13 @@ new class extends Component {
 
     public bool $showArchived = false;
 
-    /** "steps" (the working view) or "plan" (the whole contract as one document); ?tab=plan in the URL. */
+    /** "steps" (the working view), "plan" (the whole contract as one document) or "checklist-{id}"; ?tab= in the URL. */
     #[Url(except: 'steps')]
     public string $tab = 'steps';
+
+    /** Which steps to list: all, "unapproved" (missing any required approval) or "mine" (missing the acting party's). */
+    #[Url(as: 'show', except: 'all')]
+    public string $show = 'all';
 
     public function mount(Contract $contract): void
     {
@@ -182,6 +186,39 @@ new class extends Component {
             && ContractAccess::allows($this->actor(), $this->contract, ContractAbility::Approve);
     }
 
+    /**
+     * The steps the "Show" filter keeps, as a set of ids; null when every step is shown.
+     *
+     * @return array<string, true>|null
+     */
+    #[Computed]
+    public function shownStepIds(): ?array
+    {
+        $party = $this->actor()->party;
+        $partyIds = match ($this->show) {
+            'unapproved' => $this->report->requiredPartyIds,
+            'mine' => $this->actingIsRequired && $party !== null ? [$party->id] : [],
+            default => [],
+        };
+        if ($partyIds === []) {
+            return null;
+        }
+
+        $shown = [];
+        foreach ($this->phases as $phase) {
+            foreach ($phase->steps as $step) {
+                foreach ($partyIds as $partyId) {
+                    if (! isset($this->approved[$step->id.':'.$partyId])) {
+                        $shown[$step->id] = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        return $shown;
+    }
+
     #[Computed]
     public function actingHasSignedOff(): bool
     {
@@ -252,12 +289,7 @@ new class extends Component {
      */
     private function refreshStepsFor(?ActivityEvent $activity): void
     {
-        $subject = $activity?->subject;
-        $stepId = match (true) {
-            $subject instanceof Step => $subject->id,
-            $subject instanceof Comment, $subject instanceof Approval => $subject->step_id,
-            default => null,
-        };
+        $stepId = self::stepIdOf($activity?->subject);
 
         if ($activity !== null && str_starts_with($activity->type, 'checklist.')) {
             $this->dispatch('checklist-refresh');
@@ -291,7 +323,9 @@ new class extends Component {
     }
 
     /**
-     * @return list<string>
+     * What changed while the person was reviewing; each change to a step links to it (with its comments for comments).
+     *
+     * @return list<array{text: string, hash: string|null}>
      */
     #[Computed]
     public function changeDescriptions(): array
@@ -302,8 +336,28 @@ new class extends Component {
             ->with(['actorUser', 'actorParty', 'subject'])
             ->orderBy('position')
             ->get()
-            ->map(fn (ActivityEvent $event) => ActivityDescription::for($event))
+            ->map(function (ActivityEvent $event): array {
+                $stepId = self::stepIdOf($event->subject);
+
+                return [
+                    'text' => ActivityDescription::for($event),
+                    'hash' => $stepId === null ? null : 'step-'.$stepId.($event->subject instanceof Comment ? '-comments' : ''),
+                ];
+            })
+            ->values()
             ->all();
+    }
+
+    /**
+     * The step an activity is about: the step itself, or the step of a comment or approval.
+     */
+    private static function stepIdOf(mixed $subject): ?string
+    {
+        return match (true) {
+            $subject instanceof Step => $subject->id,
+            $subject instanceof Comment, $subject instanceof Approval => $subject->step_id,
+            default => null,
+        };
     }
 
     public function signOff(): void
@@ -447,23 +501,27 @@ new class extends Component {
     }
 
     /**
-     * Done and total items of this version's checklist, for the tab; null when there is none (no tab).
+     * The version's checklists for their tabs (oldest first), with done and total items.
      *
-     * @return array{done: int, total: int}|null
+     * @return Collection<int, array{id: string, name: string, done: int, total: int}>
      */
     #[Computed]
-    public function checklistCounts(): ?array
+    public function checklistTabs(): Collection
     {
-        $checklist = Checklist::query()->where('contract_id', $this->contract->id)->first();
-
-        return $checklist === null ? null : [
-            'done' => $checklist->items()->whereNotNull('checked_at')->count(),
-            'total' => $checklist->items()->count(),
-        ];
+        return Checklist::query()->where('contract_id', $this->contract->id)
+            ->withCount(['items as total_items', 'items as done_items' => fn ($items) => $items->whereNotNull('checklist_items.checked_at')])
+            ->orderBy('created_at')->orderBy('name')
+            ->get()
+            ->map(fn (Checklist $checklist) => [
+                'id' => $checklist->id,
+                'name' => $checklist->name,
+                'done' => (int) $checklist->getAttribute('done_items'),
+                'total' => (int) $checklist->getAttribute('total_items'),
+            ]);
     }
 
     /**
-     * A tick in the Checklist tab changes the count in its label.
+     * A tick in a Checklist tab changes the count in its label.
      */
     #[On('checklist-updated')]
     public function checklistUpdated(): void {}
@@ -472,9 +530,17 @@ new class extends Component {
     {
         // Actions may have changed the contract during this request.
         $this->contract->refresh();
-        unset($this->report, $this->changeDescriptions, $this->phases, $this->requiredParties, $this->approved, $this->stageCounts, $this->archivedCount, $this->archivedSteps, $this->canEdit, $this->actingIsRequired, $this->actingHasSignedOff, $this->nextVersion, $this->versions, $this->canSetStatus, $this->plan, $this->checklistCounts);
-        if (! in_array($this->tab, ['steps', 'plan', 'checklist'], true) || ($this->tab === 'checklist' && $this->checklistCounts === null)) {
+        unset($this->report, $this->changeDescriptions, $this->phases, $this->requiredParties, $this->approved, $this->stageCounts, $this->archivedCount, $this->archivedSteps, $this->canEdit, $this->actingIsRequired, $this->actingHasSignedOff, $this->nextVersion, $this->versions, $this->canSetStatus, $this->plan, $this->checklistTabs, $this->shownStepIds);
+        // Tabs: steps, plan, or checklist-{id} for a checklist of this version (one that was replaced is gone).
+        $checklistTab = str_starts_with($this->tab, 'checklist-') && $this->checklistTabs->contains('id', substr($this->tab, 10));
+        if (! in_array($this->tab, ['steps', 'plan'], true) && ! $checklistTab) {
             $this->tab = 'steps';
+        }
+        // "Awaiting me" only for someone acting as a required approver; the filters need required approvers at all.
+        if (! in_array($this->show, ['all', 'unapproved', 'mine'], true) || $this->report->requiredPartyIds === []
+            || ($this->show === 'mine' && ! $this->actingIsRequired)) {
+            $this->show = 'all';
+            unset($this->shownStepIds);
         }
         if (! $this->changedSinceReview) {
             $this->reviewedFingerprint = $this->report->fingerprint;
@@ -605,9 +671,17 @@ new class extends Component {
         @if ($changedSinceReview && ! $contract->isAgreed())
             <flux:callout icon="arrow-path" color="amber" :heading="__('The contract changed while you were reviewing it')" data-test="changed-since-review">
                 <flux:callout.text>
-                    <ul class="list-disc ps-5">
-                        @foreach ($this->changeDescriptions as $description)
-                            <li>{{ $description }}</li>
+                    {{-- Links go to the step on the Steps tab without reloading, so the frozen review state is kept. If the
+                         hash is already this step's, re-announce it so the step shows again. --}}
+                    <ul class="list-disc ps-5" x-data="{ go(hash) { $wire.set('tab', 'steps').then(() => { if (location.hash === '#' + hash) { window.dispatchEvent(new HashChangeEvent('hashchange')) } else { location.hash = hash } }) } }">
+                        @foreach ($this->changeDescriptions as $change)
+                            <li>
+                                @if ($change['hash'] !== null)
+                                    <a href="#{{ $change['hash'] }}" x-on:click.prevent="go(@js($change['hash']))" class="underline decoration-dotted underline-offset-2 hover:decoration-solid" data-test="change-link">{{ $change['text'] }}</a>
+                                @else
+                                    {{ $change['text'] }}
+                                @endif
+                            </li>
                         @endforeach
                     </ul>
                 </flux:callout.text>
@@ -631,22 +705,29 @@ new class extends Component {
         <flux:text size="xs" class="font-mono">{{ __('Reviewed state') }}: {{ substr($this->report->fingerprint, 0, 12) }}</flux:text>
     </flux:card>
 
-    {{-- Tabs: the working view, the contract as one plan document, and (once an agent wrote one) the checklist. --}}
-    <div role="tablist" class="flex gap-6 border-b border-zinc-200 dark:border-zinc-700" data-test="contract-tabs">
-        @foreach (['steps' => __('Steps'), 'plan' => __('View as plan'), ...($this->checklistCounts === null ? [] : ['checklist' => __('Checklist')])] as $key => $label)
-            <button type="button" role="tab" aria-selected="{{ $tab === $key ? 'true' : 'false' }}" wire:click="$set('tab', '{{ $key }}')" data-test="tab-{{ $key }}"
-                    @class(['-mb-px border-b-2 px-1 pb-2 text-sm font-medium', 'border-zinc-800 text-zinc-900 dark:border-white dark:text-white' => $tab === $key, 'border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200' => $tab !== $key])>
-                {{ $label }}
-                @if ($key === 'checklist')
-                    @php($complete = $this->checklistCounts['total'] > 0 && $this->checklistCounts['done'] === $this->checklistCounts['total'])
-                    <span @class(['ms-1 rounded-full px-1.5 py-0.5 text-xs tabular-nums', 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300' => $complete, 'bg-zinc-100 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300' => ! $complete])>{{ $this->checklistCounts['done'] }}/{{ $this->checklistCounts['total'] }}</span>
+    {{-- Tabs: the working view, the contract as one plan document, and one per checklist ("Checklist: API team").
+         They wrap onto a second line rather than scroll when there are many. --}}
+    @php($tabs = collect([
+        ['key' => 'steps', 'label' => __('Steps'), 'counts' => null],
+        ['key' => 'plan', 'label' => __('View as plan'), 'counts' => null],
+        ...$this->checklistTabs->map(fn (array $c) => ['key' => 'checklist-'.$c['id'], 'label' => __('Checklist: :name', ['name' => $c['name']]), 'counts' => $c])->all(),
+    ]))
+    <div role="tablist" class="flex flex-wrap gap-x-6 gap-y-1 border-b border-zinc-200 dark:border-zinc-700" data-test="contract-tabs">
+        @foreach ($tabs as $item)
+            <button type="button" role="tab" aria-selected="{{ $tab === $item['key'] ? 'true' : 'false' }}" wire:click="$set('tab', '{{ $item['key'] }}')" wire:key="tab-{{ $item['key'] }}"
+                    data-test="{{ $item['counts'] === null ? 'tab-'.$item['key'] : 'tab-checklist' }}"
+                    @class(['-mb-px flex max-w-72 items-center border-b-2 px-1 pb-2 text-sm font-medium', 'border-zinc-800 text-zinc-900 dark:border-white dark:text-white' => $tab === $item['key'], 'border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200' => $tab !== $item['key']])>
+                <span class="truncate" title="{{ $item['label'] }}">{{ $item['label'] }}</span>
+                @if ($item['counts'] !== null)
+                    @php($complete = $item['counts']['total'] > 0 && $item['counts']['done'] === $item['counts']['total'])
+                    <span @class(['ms-1 shrink-0 rounded-full px-1.5 py-0.5 text-xs tabular-nums', 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300' => $complete, 'bg-zinc-100 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300' => ! $complete])>{{ $item['counts']['done'] }}/{{ $item['counts']['total'] }}</span>
                 @endif
             </button>
         @endforeach
     </div>
 
-    @if ($tab === 'checklist')
-        <livewire:pages::contracts.checklist :$contract :key="'checklist-'.$contract->id" />
+    @if (str_starts_with($tab, 'checklist-'))
+        <livewire:pages::contracts.checklist :$contract :checklist-id="substr($tab, 10)" :key="$tab" />
     @elseif ($tab === 'plan')
         <flux:card class="space-y-4" data-test="plan">
             <div class="flex flex-wrap items-center justify-between gap-3">
@@ -658,13 +739,27 @@ new class extends Component {
     @else
     {{-- Phases and steps in one panel. Columns line up with each step's row in pages::contracts.step. --}}
     <style>{!! \App\Support\RevisionDiff::styles() !!}</style>
-    {{-- A link to an archived step opens the archived list, so the step can show itself. --}}
+    {{-- A link to a step the filter hides shows all steps again; a link to an archived step opens the archived list. --}}
     <flux:card class="space-y-2 overflow-x-auto" data-test="steps-panel"
-               x-data="{ showLinkedArchived() { const m = location.hash.match(/^#(step-[0-9a-z]+)/); if (m && ! document.getElementById(m[1]) && @js($this->archivedCount > 0)) $wire.set('showArchived', true) } }"
-               x-init="showLinkedArchived()" x-on:hashchange.window="showLinkedArchived()">
+               x-data="{ revealLinked() {
+                   const m = location.hash.match(/^#(step-[0-9a-z]+)/);
+                   if (! m || document.getElementById(m[1])) return;
+                   const archived = () => { if (! document.getElementById(m[1]) && @js($this->archivedCount > 0)) $wire.set('showArchived', true) };
+                   $wire.show !== 'all' ? $wire.set('show', 'all').then(archived) : archived();
+               } }"
+               x-init="revealLinked()" x-on:hashchange.window="revealLinked()">
         <div class="flex flex-wrap items-center justify-between gap-2" x-data="{ phasesOpen: true, stepsOpen: false }">
             <flux:heading size="lg" level="2">{{ __('Steps') }}</flux:heading>
-            <div class="flex gap-1">
+            <div class="flex flex-wrap items-center gap-1">
+                @if ($this->requiredParties->isNotEmpty())
+                    <flux:radio.group wire:model.live="show" variant="segmented" size="sm" class="me-2" data-test="step-filter">
+                        <flux:radio value="all" :label="__('All')" />
+                        <flux:radio value="unapproved" :label="__('Not fully approved')" />
+                        @if ($this->actingIsRequired)
+                            <flux:radio value="mine" :label="__('Awaiting me')" />
+                        @endif
+                    </flux:radio.group>
+                @endif
                 <flux:button size="xs" variant="ghost" x-on:click="stepsOpen = ! stepsOpen; $dispatch('steps-toggle', { phase: null, open: stepsOpen }); if (stepsOpen) { phasesOpen = true; $dispatch('phases-toggle', { open: true }) }">
                     <span x-text="stepsOpen ? @js(__('Hide all step text')) : @js(__('Show all step text'))">{{ __('Show all step text') }}</span>
                 </flux:button>
@@ -674,7 +769,16 @@ new class extends Component {
             </div>
         </div>
 
-        <div class="min-w-fit text-sm">
+        @if ($this->shownStepIds === [])
+            <flux:text size="sm" data-test="filter-empty">
+                {{ $show === 'mine' ? __('Nothing awaits your party\'s approval.') : __('Every step is approved by every required party.') }}
+            </flux:text>
+        @endif
+
+        {{-- Wide enough for the fixed columns plus a readable title column; titles wrap rather than widen the list,
+             so the party columns stay in view. The panel scrolls sideways only below this width. --}}
+        @php($fixedColumns = ($this->canEdit ? 1.5 : 0) + 3 + 3.5 + 6.5 * $this->requiredParties->count() + 2.5)
+        <div class="text-sm" style="min-width: {{ 14 + $fixedColumns }}rem">
             <div class="flex items-center gap-2 border-b border-zinc-200 pb-2 text-xs font-medium text-zinc-500 dark:border-zinc-700">
                 @if ($this->canEdit)<span class="w-4 shrink-0"></span>@endif
                 <span class="min-w-0 flex-1">{{ __('Step') }}</span>
@@ -690,12 +794,12 @@ new class extends Component {
                 @php($counts = $this->stageCounts[$phase->id])
                 <section wire:key="phase-{{ $phase->id }}" data-phase="{{ $phase->id }}" data-test="phase"
                          x-data="{ open: true, focusLinked() { const m = location.hash.match(/^#(step-[0-9a-z]+)/); if (m) this.open = this.$el.querySelector('#' + m[1]) !== null } }"
-                         x-init="focusLinked()" x-on:hashchange.window="focusLinked()" x-on:phases-toggle.window="open = $event.detail.open"
+                         x-init="focusLinked()" x-on:hashchange.window="focusLinked()" x-on:phases-toggle.window="open = $event.detail.open" x-on:reveal-phase="open = true"
                          class="border-b border-zinc-200 last:border-0 dark:border-zinc-700">
                     {{-- Phase header: title (click to rename), progress, per-party counts. --}}
                     <div class="flex items-center gap-2 bg-zinc-50 py-2 dark:bg-zinc-800/60">
                         @if ($this->canEdit)<span class="w-4 shrink-0"></span>@endif
-                        <div class="flex min-w-0 flex-1 items-center gap-1.5">
+                        <div class="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-1">
                             <button type="button" x-on:click="open = ! open" x-bind:aria-expanded="open" aria-label="{{ __('Collapse or expand phase') }}" class="shrink-0">
                                 <flux:icon.chevron-down variant="mini" class="text-zinc-500 transition-transform" x-bind:class="! open && '-rotate-90'" />
                             </button>
@@ -707,12 +811,12 @@ new class extends Component {
                                     <flux:input wire:model="phaseTitle" size="sm" :aria-label="__('Phase title')" />
                                 </form>
                             @elseif ($this->canEdit)
-                                <h3 class="min-w-0 truncate">
+                                <h3 class="min-w-0 wrap-anywhere">
                                     <button type="button" wire:click="startRenaming('{{ $phase->id }}')" title="{{ __('Click to rename') }}"
-                                            class="font-semibold decoration-dotted underline-offset-4 hover:underline" data-test="phase-title">{{ $phase->title }}</button>
+                                            class="text-start font-semibold decoration-dotted underline-offset-4 hover:underline" data-test="phase-title">{{ $phase->title }}</button>
                                 </h3>
                             @else
-                                <h3 class="min-w-0 truncate font-semibold" data-test="phase-title">{{ $phase->title }}</h3>
+                                <h3 class="min-w-0 font-semibold wrap-anywhere" data-test="phase-title">{{ $phase->title }}</h3>
                             @endif
                             @if ($counts['steps'] > 0 && $this->requiredParties->isNotEmpty())
                                 <flux:badge size="sm" :color="$counts['approved'] === $counts['steps'] ? 'green' : 'zinc'" data-test="phase-progress">
@@ -750,38 +854,47 @@ new class extends Component {
                         @if ($renamingPhase === $phase->id)<flux:text size="sm" class="text-red-600">{{ $message }}</flux:text>@endif
                     @enderror
 
-                    <div x-show="open">
-                        <div class="divide-y divide-zinc-100 dark:divide-zinc-700/60" @if ($this->canEdit) wire:sort="sortStep" wire:sort:group="steps" wire:sort:group-id="{{ $phase->id }}" @endif>
-                            @foreach ($phase->steps as $step)
-                                <div wire:key="step-{{ $step->id }}" @if ($this->canEdit) wire:sort:item="{{ $step->id }}" @endif class="flex items-start gap-2">
-                                    @if ($this->canEdit)
-                                        <span class="w-4 shrink-0 cursor-grab pt-2.5 text-zinc-400" wire:sort:handle title="{{ __('Drag to move') }}"><flux:icon.bars-3 variant="micro" /></span>
-                                    @endif
-                                    <livewire:pages::contracts.step :$contract :$step :key="'step-component-'.$step->id" />
-                                </div>
-                            @endforeach
-                        </div>
-                        @if ($phase->steps->isEmpty())
-                            <flux:text size="sm" class="py-2 ps-6">{{ __('No steps in this phase.') }}</flux:text>
-                        @endif
-
-                        @if ($this->canEdit)
-                            <div class="py-2 ps-6">
-                                @if ($addingStepTo === $phase->id)
-                                    <form wire:submit="addStep" class="space-y-3 rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
-                                        <flux:input wire:model="newStepTitle" :label="__('Step title')" />
-                                        <flux:textarea wire:model="newStepDescription" :label="__('Description (Markdown)')" rows="4" />
-                                        <div class="flex gap-2">
-                                            <flux:button size="sm" type="submit" variant="primary">{{ __('Add step') }}</flux:button>
-                                            <flux:button size="sm" variant="ghost" wire:click="$set('addingStepTo', null)">{{ __('Cancel') }}</flux:button>
-                                        </div>
-                                    </form>
-                                @else
-                                    <flux:button size="xs" variant="subtle" icon="plus" wire:click="startAddingStep('{{ $phase->id }}')">{{ __('Add step') }}</flux:button>
-                                @endif
+                    {{-- With a filter, only the steps it keeps are listed; a phase with none keeps just its header. Dragging
+                         is off while filtering, since positions count the hidden steps too. --}}
+                    @php($filtering = $this->shownStepIds !== null)
+                    @php($shownSteps = $filtering ? $phase->steps->filter(fn ($s) => isset($this->shownStepIds[$s->id]))->values() : $phase->steps)
+                    @php($sortable = $this->canEdit && ! $filtering)
+                    @if (! $filtering || $shownSteps->isNotEmpty())
+                        <div x-show="open">
+                            <div class="divide-y divide-zinc-100 dark:divide-zinc-700/60" @if ($sortable) wire:sort="sortStep" wire:sort:group="steps" wire:sort:group-id="{{ $phase->id }}" @endif>
+                                @foreach ($shownSteps as $step)
+                                    <div wire:key="step-{{ $step->id }}" @if ($sortable) wire:sort:item="{{ $step->id }}" @endif class="flex items-start gap-2">
+                                        @if ($sortable)
+                                            <span class="w-4 shrink-0 cursor-grab pt-2.5 text-zinc-400" wire:sort:handle title="{{ __('Drag to move') }}"><flux:icon.bars-3 variant="micro" /></span>
+                                        @elseif ($this->canEdit)
+                                            <span class="w-4 shrink-0"></span>
+                                        @endif
+                                        <livewire:pages::contracts.step :$contract :$step :key="'step-component-'.$step->id" />
+                                    </div>
+                                @endforeach
                             </div>
-                        @endif
-                    </div>
+                            @if ($phase->steps->isEmpty())
+                                <flux:text size="sm" class="py-2 ps-6">{{ __('No steps in this phase.') }}</flux:text>
+                            @endif
+
+                            @if ($this->canEdit)
+                                <div class="py-2 ps-6">
+                                    @if ($addingStepTo === $phase->id)
+                                        <form wire:submit="addStep" class="space-y-3 rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
+                                            <flux:input wire:model="newStepTitle" :label="__('Step title')" />
+                                            <flux:textarea wire:model="newStepDescription" :label="__('Description (Markdown)')" rows="4" />
+                                            <div class="flex gap-2">
+                                                <flux:button size="sm" type="submit" variant="primary">{{ __('Add step') }}</flux:button>
+                                                <flux:button size="sm" variant="ghost" wire:click="$set('addingStepTo', null)">{{ __('Cancel') }}</flux:button>
+                                            </div>
+                                        </form>
+                                    @else
+                                        <flux:button size="xs" variant="subtle" icon="plus" wire:click="startAddingStep('{{ $phase->id }}')">{{ __('Add step') }}</flux:button>
+                                    @endif
+                                </div>
+                            @endif
+                        </div>
+                    @endif
                 </section>
             @empty
                 <flux:text class="py-3">{{ __('No phases yet.') }}</flux:text>

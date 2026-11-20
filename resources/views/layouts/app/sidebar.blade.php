@@ -4,22 +4,23 @@
         @include('partials.head')
     </head>
     <body class="min-h-screen bg-white dark:bg-zinc-800">
-        <flux:sidebar sticky collapsible="mobile" class="border-e border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900">
+        {{-- Collapsible on desktop too (icons only, remembered in localStorage by Flux); a drawer on mobile. --}}
+        <flux:sidebar sticky collapsible class="border-e border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900">
             <flux:sidebar.header>
                 <x-app-logo href="{{ route('dashboard') }}" wire:navigate />
-                <flux:sidebar.collapse class="lg:hidden" />
+                <flux:sidebar.collapse class="in-data-flux-sidebar-on-desktop:not-in-data-flux-sidebar-collapsed-desktop:-me-2" :tooltip="__('Collapse or expand the sidebar')" data-test="sidebar-collapse" />
             </flux:sidebar.header>
 
+            {{-- No group heading: Flux hides grouped items when the sidebar is collapsed. --}}
             <flux:sidebar.nav>
-                <flux:sidebar.group :heading="__('Akord')" class="grid">
-                    <flux:sidebar.item icon="home" :href="route('dashboard')" :current="request()->routeIs('dashboard')" wire:navigate>
-                        {{ __('Organisations') }}
-                    </flux:sidebar.item>
-                    @php($unreadNotifications = auth()->user()->unreadNotifications()->count())
-                    <flux:sidebar.item icon="bell" :href="route('notifications.index')" :current="request()->routeIs('notifications.index')" :badge="$unreadNotifications > 0 ? $unreadNotifications : null" wire:navigate data-test="notifications-link">
-                        {{ __('Notifications') }}
-                    </flux:sidebar.item>
-                </flux:sidebar.group>
+                <flux:sidebar.item icon="home" :href="route('dashboard')" :current="request()->routeIs('dashboard')" wire:navigate>
+                    {{ __('Organisations') }}
+                </flux:sidebar.item>
+                @php($unreadNotifications = auth()->user()->unreadNotifications()->count())
+                {{-- The count badge is hidden while collapsed; the dot on the bell still shows there is something unread. --}}
+                <flux:sidebar.item icon="bell" :icon-dot="$unreadNotifications > 0" :href="route('notifications.index')" :current="request()->routeIs('notifications.index')" :badge="$unreadNotifications > 0 ? $unreadNotifications : null" wire:navigate data-test="notifications-link">
+                    {{ __('Notifications') }}
+                </flux:sidebar.item>
             </flux:sidebar.nav>
 
             <flux:spacer />

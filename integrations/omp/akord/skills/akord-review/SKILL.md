@@ -37,10 +37,10 @@ Only when the user asks, and only if your party is an editor. `get_contract` giv
 
 ## Working through a checklist
 
-A contract version can have one working checklist: stages of items, ticked off as the work is done. It is separate from what was agreed, so it still changes after agreement (but not once the contract is complete or cancelled), and ticking never affects approvals or sign-offs.
+A contract version can have several working checklists, each with a name (for example one per team): stages of items, ticked off as the work is done. They are separate from what was agreed, so they still change after agreement (but not once the contract is complete or cancelled), and ticking never affects approvals or sign-offs.
 
-- **Creating one** (only when the user asks, and only if your party is an editor): read the plan (`get_contract` with `format: markdown`), then `create_checklist` with your own `stages`, each with `items` (`title`, optional `notes`, and `step_id` for the contract step an item comes from). Break steps into concrete tasks where that helps. Omit `stages` to copy the contract's phases and steps as they are. If a checklist already has ticked items, replacing it needs `replace: true`: confirm with the user first.
-- **While working:** `get_checklist` for item ids and what is done; `check_item` as soon as an item's work is finished, `uncheck_item` if it turns out unfinished. `add_checklist_item` adds work you discover to the end of a stage.
+- **Creating one** (only when the user asks, and only if your party is an editor): read the plan (`get_contract` with `format: markdown`), then `create_checklist` with a `name` (shown on its tab, e.g. `"API team"`; a contract can have several, one per team) and your own `stages`, each with `items` (`title`, optional `notes`, and `step_id` for the contract step an item comes from). Break steps into concrete tasks where that helps, and keep to the work of the team the checklist is for. Omit `stages` to copy the contract's phases and steps as they are. Using a name that exists (ignoring case) replaces that checklist; if it has ticked items, that needs `replace: true`: confirm with the user first.
+- **While working:** `get_checklists` for every checklist with its item ids and what is done; `check_item` as soon as an item's work is finished, `uncheck_item` if it turns out unfinished. `add_checklist_item` adds work you discover to the end of a stage.
 
 ## Closing a contract
 

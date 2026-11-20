@@ -196,6 +196,7 @@ final class AgentPresenter
         return [
             'id' => $checklist->id,
             'contract_id' => $checklist->contract_id,
+            'content' => ['name' => $checklist->name],
             'created_at' => $checklist->created_at?->toIso8601String(),
             'created_by' => ['party' => $checklist->createdByParty->name, 'user' => $checklist->createdByUser?->name],
             'done' => $items->filter(fn (ChecklistItem $item) => $item->isChecked())->count(),

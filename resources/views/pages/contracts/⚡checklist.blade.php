@@ -13,8 +13,8 @@ use Livewire\Attributes\On;
 use Livewire\Component;
 
 /*
- * The contract page's Checklist tab: the version's working checklist, ticked off as the work is done. Agents write
- * it (create_checklist); people and agents who may edit tick items, also after agreement, until the contract is
+ * One of the contract page's Checklist tabs: a named working checklist, ticked off as the work is done. Agents write
+ * them (create_checklist); people and agents who may edit tick items, also after agreement, until the contract is
  * complete or cancelled.
  */
 new class extends Component {
@@ -22,17 +22,23 @@ new class extends Component {
 
     public Contract $contract;
 
-    public function mount(Contract $contract): void
+    public string $checklistId;
+
+    public function mount(Contract $contract, string $checklistId): void
     {
         Gate::authorize('view', $contract);
         $this->contract = $contract;
+        $this->checklistId = $checklistId;
         $this->initialiseActingParty();
     }
 
+    /**
+     * Null when it was replaced (under a new id) or never belonged to this contract.
+     */
     #[Computed]
     public function checklist(): ?Checklist
     {
-        return Checklist::query()->where('contract_id', $this->contract->id)
+        return Checklist::query()->where('contract_id', $this->contract->id)->whereKey($this->checklistId)
             ->with(['createdByParty', 'createdByUser', 'stages.items' => fn ($items) => $items->with(['checkedByParty', 'checkedByUser', 'step.currentRevision'])])
             ->first();
     }
@@ -74,14 +80,17 @@ new class extends Component {
 
 <div data-test="checklist">
     @if ($this->checklist === null)
-        <flux:card><flux:text>{{ __('This version has no checklist.') }}</flux:text></flux:card>
+        <flux:card><flux:text>{{ __('This checklist no longer exists; it may have been replaced.') }}</flux:text></flux:card>
     @else
         @php($items = $this->checklist->stages->flatMap->items)
         @php($done = $items->whereNotNull('checked_at')->count())
         <flux:card class="space-y-5">
             <div class="space-y-2">
                 <div class="flex flex-wrap items-baseline justify-between gap-2">
-                    <flux:heading size="lg" level="2">{{ __(':done of :total done', ['done' => $done, 'total' => $items->count()]) }}</flux:heading>
+                    <div>
+                        <flux:heading size="lg" level="2" class="wrap-anywhere" data-test="checklist-name">{{ $this->checklist->name }}</flux:heading>
+                        <flux:text size="sm">{{ __(':done of :total done', ['done' => $done, 'total' => $items->count()]) }}</flux:text>
+                    </div>
                     <flux:text size="sm">
                         {{ __('Written by :who, :when', ['who' => $this->checklist->createdByUser?->name ?? $this->checklist->createdByParty->name, 'when' => $this->checklist->created_at?->diffForHumans()]) }}
                     </flux:text>
@@ -108,7 +117,7 @@ new class extends Component {
                                    @checked($item->isChecked()) @disabled(! $this->canTick)
                                    wire:click="toggle('{{ $item->id }}')" aria-label="{{ $item->title }}">
                             <div class="min-w-0 flex-1 space-y-1">
-                                <div @class(['text-sm', 'text-zinc-500 line-through' => $item->isChecked()])>{{ $item->title }}</div>
+                                <div @class(['text-sm wrap-anywhere', 'text-zinc-500 line-through' => $item->isChecked()])>{{ $item->title }}</div>
                                 @if ($item->notes)
                                     <x-markdown :source="$item->notes" class="text-zinc-600 dark:text-zinc-300" />
                                 @endif

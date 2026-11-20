@@ -22,7 +22,7 @@ use App\Support\ContractTransaction;
  * (D14). Copies parties, roles, required approvers, phases and active steps (each as revision 1, keeping the original
  * author). The approvals that counted on each step are carried over too, since the content is unchanged; withdrawn
  * approvals, sign-offs and comments are not. An agreed contract had every step approved, so the new version starts
- * ready for sign-off, recorded as `contract.ready` on it. The checklist, if any, is copied with its ticks.
+ * ready for sign-off, recorded as `contract.ready` on it. Its checklists are copied with their ticks.
  */
 final class StartNewVersion
 {
@@ -96,7 +96,7 @@ final class StartNewVersion
                 }
             }
 
-            $this->copyChecklist($contract, $next, $stepMap);
+            $this->copyChecklists($contract, $next, $stepMap);
 
             $log->record('contract.version_started', $next, ['version' => $next->version]);
 
@@ -111,32 +111,32 @@ final class StartNewVersion
     }
 
     /**
-     * The checklist carries on, ticks included; items follow their steps into the new version (an item whose step was
+     * The checklists carry on, ticks included; items follow their steps into the new version (an item whose step was
      * archived loses the link).
      *
      * @param  array<string, string>  $stepMap
      */
-    private function copyChecklist(Contract $from, Contract $to, array $stepMap): void
+    private function copyChecklists(Contract $from, Contract $to, array $stepMap): void
     {
-        $checklist = Checklist::query()->where('contract_id', $from->getKey())->with('stages.items')->first();
-        if ($checklist === null) {
-            return;
-        }
+        $checklists = Checklist::query()->where('contract_id', $from->getKey())->with('stages.items')->orderBy('created_at')->orderBy('name')->get();
 
-        $copy = Checklist::query()->create([
-            'contract_id' => $to->id,
-            'created_by_party_id' => $checklist->created_by_party_id,
-            'created_by_user_id' => $checklist->created_by_user_id,
-        ]);
+        foreach ($checklists as $checklist) {
+            $copy = Checklist::query()->create([
+                'contract_id' => $to->id,
+                'name' => $checklist->name,
+                'created_by_party_id' => $checklist->created_by_party_id,
+                'created_by_user_id' => $checklist->created_by_user_id,
+            ]);
 
-        foreach ($checklist->stages as $stage) {
-            $stageCopy = ChecklistStage::query()->create(['checklist_id' => $copy->id, 'title' => $stage->title, 'position' => $stage->position]);
-            foreach ($stage->items as $item) {
-                ChecklistItem::query()->create([
-                    ...$item->only(['position', 'title', 'notes', 'checked_at', 'checked_by_party_id', 'checked_by_user_id']),
-                    'checklist_stage_id' => $stageCopy->id,
-                    'step_id' => $item->step_id === null ? null : ($stepMap[$item->step_id] ?? null),
-                ]);
+            foreach ($checklist->stages as $stage) {
+                $stageCopy = ChecklistStage::query()->create(['checklist_id' => $copy->id, 'title' => $stage->title, 'position' => $stage->position]);
+                foreach ($stage->items as $item) {
+                    ChecklistItem::query()->create([
+                        ...$item->only(['position', 'title', 'notes', 'checked_at', 'checked_by_party_id', 'checked_by_user_id']),
+                        'checklist_stage_id' => $stageCopy->id,
+                        'step_id' => $item->step_id === null ? null : ($stepMap[$item->step_id] ?? null),
+                    ]);
+                }
             }
         }
     }
