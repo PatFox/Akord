@@ -6,6 +6,8 @@ use App\Enums\OrganisationRole;
 use App\Models\AgentConnection;
 use App\Models\Party;
 use App\Models\User;
+use App\Support\Agents\LoopbackRedirect;
+use Illuminate\Support\Once;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use Laravel\Passport\Client;
@@ -95,6 +97,42 @@ test('only clients with loopback callbacks can register themselves', function ()
         ->assertJsonPath('token_endpoint_auth_method', 'none');
     $this->postJson('/oauth/register', ['client_name' => 'evil', 'redirect_uris' => ['https://evil.example/callback']])->assertStatus(400)
         ->assertJsonPath('error', 'invalid_redirect_uri');
+});
+
+test('a local client may come back on another loopback port, but not on another path or host', function () {
+    $clientId = registerClient($this);
+    $authorize = fn (string $redirect) => $this->actingAs($this->s->owner)->get('/oauth/authorize?'.http_build_query([
+        'response_type' => 'code', 'client_id' => $clientId, 'redirect_uri' => $redirect, 'state' => 'xyz', 'scope' => 'mcp:use',
+        'code_challenge' => rtrim(strtr(base64_encode(hash('sha256', str_repeat('v', 64), true)), '+/', '-_'), '='), 'code_challenge_method' => 'S256',
+    ]));
+
+    // omp reusing its client with oauth.callbackPort changed: the whole flow works on the new port.
+    $authorize('http://localhost:3334/callback')->assertOk()->assertSee('Connect omp to Akord');
+    $approved = $this->post(route('agents.connect.approve'), ['auth_token' => session('authToken'), 'party_id' => $this->agent->id, 'abilities' => ['comment']]);
+    parse_str((string) parse_url((string) $approved->assertRedirect()->headers->get('Location'), PHP_URL_QUERY), $query);
+    expect((string) $approved->headers->get('Location'))->toStartWith('http://localhost:3334/callback?');
+    app('auth')->forgetGuards();
+    $this->post('/oauth/token', [
+        'grant_type' => 'authorization_code', 'client_id' => $clientId, 'redirect_uri' => 'http://localhost:3334/callback',
+        'code_verifier' => str_repeat('v', 64), 'code' => $query['code'],
+    ])->assertOk()->assertJsonStructure(['access_token']);
+
+    foreach (['http://localhost:3334/elsewhere', 'http://evil.example:3334/callback', 'https://localhost:3334/callback', 'http://localhost/callback'] as $redirect) {
+        $authorize($redirect)->assertStatus(401);
+    }
+    expect(Client::query()->findOrFail($clientId)->redirect_uris)->toBe([CALLBACK, 'http://localhost:3334/callback']);
+
+    // This runs before login, so the list stays bounded: the registered callback plus the latest ports. Passport
+    // memoises the client for the app's lifetime (once()); a real request is a fresh process, so flush between them.
+    foreach (range(4000, 4011) as $port) {
+        Once::flush();
+        // Already connected, so Passport skips the screen and sends the code straight back to the new port.
+        expect((string) $authorize("http://localhost:{$port}/callback")->assertRedirect()->headers->get('Location'))->toStartWith("http://localhost:{$port}/callback?code=");
+    }
+    $uris = Client::query()->findOrFail($clientId)->redirect_uris;
+    expect($uris)->toHaveCount(LoopbackRedirect::MAX_URIS)
+        ->and($uris[0])->toBe(CALLBACK)
+        ->and(end($uris))->toBe('http://localhost:4011/callback');
 });
 
 test('an owner connects a client as an agent party, which then acts as that party with the chosen abilities', function () {

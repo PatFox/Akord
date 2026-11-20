@@ -759,6 +759,14 @@ Update with `powershell -ExecutionPolicy Bypass -File $env:LOCALAPPDATA\Akord\ak
 - **Activity:** descriptions name the checklist (":actor ticked “Login” in “App team”"); `checklist.created` records `name` in its payload.
 - **Not done:** renaming or deleting a checklist (replacing by name is the only way to change one).
 
+### Fix: omp sign-in on another callback port (2026-11-20)
+
+- **Bug:** omp's OAuth callback listener defaults to port 3000; when that port is taken (here by another project's Vite), `oauth.callbackPort` in `.omp/mcp.json` moves it. omp then reuses the client it registered earlier, whose only redirect is `http://localhost:<old port>/callback`, and Passport answered `invalid_client` ("Client authentication failed") because league/oauth2-server ignores the port only for `127.0.0.1` and `[::1]`, not `localhost`.
+- **Fix:** RFC 8252 §7.3 (any port for loopback redirects). Akord's `AuthorizationController::authorize` first calls `LoopbackRedirect::allowPortChange`: for a public client whose registered redirects are all plain-http loopback (`localhost`, `127.0.0.1`, `[::1]`), a redirect with the same path on another loopback port is added to the client. Other paths, hosts, schemes and confidential clients are untouched and still refused. The token exchange only compares against the authorization code, so it needs nothing.
+- **Test:** `OAuthConnectTest` "a local client may come back on another loopback port…": the full flow on a new port, and refusals for another path, host, https and a portless URI.
+- **Deployed** to NUC03 on 2026-11-20 in the uncommitted build `v0.1.0-pre.9666667.oauth` (§8). Before that, the workaround was to set `callbackPort` to the port the client was registered with (NUC03's `oauth_clients.redirect_uris`).
+- **Cap (after that deploy, not yet on NUC03):** Passport validates the authorize request before sending a guest to log in, so the port rule has to run for guests too, which let anyone add ports. A client now keeps at most 10 redirect URIs: the one it registered, plus the latest others. A deploy-check probe on NUC03 added `http://localhost:3334/callback` to client `01a1f354…` (party `kngbw6thjyj42tpf`), the port that repo now uses.
+
 ### Order of work
 
 Phases 1–13 are done, in order.
@@ -850,11 +858,13 @@ Phases 1–13 are done, in order.
 - **Stable instance on this machine:** ports 8100 (web) and 8101 (Reverb), so it runs beside dev (8000, 8082, Vite 5173).
 - **Server instance on NUC03 (`http://akord.nuc03`), installed 2026-11-17, moved to MySQL the same day:**
   - **Server:** `pat@192.168.1.205` (key in `~/.ssh/config`), running Ubuntu **26.04**, Apache 2.4.66 and PHP **8.5.4** with **mod_php** (prefork), like the other `.nuc03` vhosts. `sudo` needs a password, so root steps go to the user as a script.
-  - **Release:** `v0.1.0-pre.3577ac5.layout`, a local `build-release.php` of the working tree on `3577ac5` with the long-title fix and the collapsible sidebar, not yet committed (so no CI run; the local SQLite suite passed). Deployed 2026-11-20 with scp; no GitHub release exists yet.
-    - The update script followed the README with the §8 changes. The `mysqldump` backup is `backups/akord-v0.1.0-pre.3577ac5-20261120-152641.sql`, and there was nothing to migrate.
+  - **Release:** `v0.1.0-pre.9666667.oauth`, a local `build-release.php` of the working tree on `9666667` with the loopback-port OAuth fix, not yet committed (so no CI run; the local SQLite suite passed). Deployed 2026-11-20 with scp; no GitHub release exists yet.
+    - The update script followed the README with the §8 changes. The `mysqldump` backup is `backups/akord-v0.1.0-pre.9666667-20261120-171745.sql`, and there was nothing to migrate.
     - There was no Apache reload: after 2 minutes in maintenance mode, all 20 probe requests ran the new release.
     - Laravel 13.42 runs on PHP 8.5 without errors.
     - **Release history:**
+      - `v0.1.0-pre.9666667` (2026-11-20): long titles, sidebar, step filter, linked changes, named checklists, `name_checklists` migration (108 ms; the existing checklist became "Mobile App"); backup before it is `backups/akord-v0.1.0-pre.3577ac5.layout-20261120-165350.sql`.
+      - `v0.1.0-pre.3577ac5.layout` (2026-11-20): the uncommitted long-title and sidebar build; backup before it is `backups/akord-v0.1.0-pre.3577ac5-20261120-152641.sql`.
       - `v0.1.0-pre.3577ac5` (2026-11-19): D15 checklists, `create_checklists_tables` migration (447 ms); backup before it is `backups/akord-v0.1.0-pre.ada0c9b-20261119-172407.sql`.
       - `v0.1.0-pre.ada0c9b` (2026-11-19): step links and the plan view; backup before it is `backups/akord-v0.1.0-pre.94afd32-20261119-165739.sql`.
       - `v0.1.0-pre.94afd32` (2026-11-19): steps on the contract page; backup before it is `backups/akord-v0.1.0-pre.d355a47-20261119-153345.sql`.
