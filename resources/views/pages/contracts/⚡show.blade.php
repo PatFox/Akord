@@ -817,7 +817,8 @@ new class extends Component {
                     {{-- Phase header: title (click to rename), progress, per-party counts. --}}
                     <div class="flex items-center gap-2 bg-zinc-50 py-2 dark:bg-zinc-800/60">
                         @if ($this->canEdit)<span class="w-4 shrink-0"></span>@endif
-                        <div class="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-1">
+                        {{-- No wrapping: a long title wraps within its own column, beside the chevron rather than under it. --}}
+                        <div class="flex min-w-0 flex-1 items-start gap-x-1.5">
                             <button type="button" x-on:click="open = ! open" x-bind:aria-expanded="open" aria-label="{{ __('Collapse or expand phase') }}" class="shrink-0">
                                 <flux:icon.chevron-down variant="mini" class="text-zinc-500 transition-transform" x-bind:class="! open && '-rotate-90'" />
                             </button>
@@ -836,16 +837,19 @@ new class extends Component {
                             @else
                                 <h3 class="min-w-0 font-semibold wrap-anywhere" data-test="phase-title">{{ $phase->title }}</h3>
                             @endif
-                            @if ($counts['steps'] > 0 && $this->requiredParties->isNotEmpty())
-                                <flux:badge size="sm" :color="$counts['approved'] === $counts['steps'] ? 'green' : 'zinc'" data-test="phase-progress">
-                                    {{ __(':approved of :steps approved', ['approved' => $counts['approved'], 'steps' => $counts['steps']]) }}
-                                </flux:badge>
-                            @else
-                                <flux:text size="sm">{{ trans_choice(':count step|:count steps', $counts['steps']) }}</flux:text>
-                            @endif
+                            @unless ($counts['steps'] > 0 && $this->requiredParties->isNotEmpty())
+                                <flux:text size="sm" class="shrink-0 whitespace-nowrap">{{ trans_choice(':count step|:count steps', $counts['steps']) }}</flux:text>
+                            @endunless
                         </div>
-                        <span class="w-10 shrink-0"></span>
-                        <span class="w-12 shrink-0"></span>
+                        {{-- Spans the Rev and comment columns (w-10 + gap + w-12), so a long title never pushes it onto its own line. --}}
+                        <span class="flex w-24 shrink-0 justify-center">
+                            @if ($counts['steps'] > 0 && $this->requiredParties->isNotEmpty())
+                                <flux:badge size="sm" class="tabular-nums" :color="$counts['approved'] === $counts['steps'] ? 'green' : 'zinc'" data-test="phase-progress"
+                                            title="{{ __(':approved of :steps approved', ['approved' => $counts['approved'], 'steps' => $counts['steps']]) }}">
+                                    {{ $counts['approved'] }}/{{ $counts['steps'] }}
+                                </flux:badge>
+                            @endif
+                        </span>
                         @foreach ($this->requiredParties as $party)
                             @php($n = $counts['byParty'][$party->id] ?? 0)
                             <span wire:key="count-{{ $phase->id }}-{{ $party->id }}" title="{{ __(':party approved :n of :steps', ['party' => $party->name, 'n' => $n, 'steps' => $counts['steps']]) }}"
