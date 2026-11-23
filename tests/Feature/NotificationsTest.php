@@ -166,7 +166,7 @@ test('the notifications page lists, opens and marks notifications read', functio
     $page = $this->actingAs($alice)->get(route('notifications.index'))
         ->assertOk()
         ->assertSee('commented on “Build the API”');
-    // The sidebar link carries the unread count.
+    // The header's bell link carries the unread count.
     expect(preg_match('/data-test="notifications-link".*?<\/a>/s', $page->getContent(), $link))->toBe(1)
         ->and(trim((string) preg_replace('/\s+/', ' ', strip_tags($link[0]))))->toEndWith('Notifications 1');
 

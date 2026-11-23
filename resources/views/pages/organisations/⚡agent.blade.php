@@ -149,13 +149,16 @@ new class extends Component {
 }; ?>
 
 <section class="w-full max-w-4xl space-y-8">
-    <div>
-        <flux:breadcrumbs class="mb-2">
+    <x-slot:breadcrumbs>
+        <flux:breadcrumbs>
             <flux:breadcrumbs.item :href="route('dashboard')" wire:navigate>{{ __('Organisations') }}</flux:breadcrumbs.item>
             <flux:breadcrumbs.item :href="route('organisations.show', $organisation)" wire:navigate>{{ $organisation->name }}</flux:breadcrumbs.item>
             <flux:breadcrumbs.item :href="route('organisations.parties', $organisation)" wire:navigate>{{ __('Parties') }}</flux:breadcrumbs.item>
             <flux:breadcrumbs.item>{{ $party->name }}</flux:breadcrumbs.item>
         </flux:breadcrumbs>
+    </x-slot:breadcrumbs>
+
+    <div>
         <flux:heading size="xl" level="1">{{ __('Agent access: :name', ['name' => $party->name]) }}</flux:heading>
         <flux:subheading>{{ __('Set what this agent may do, and connect it from the repository whose agent represents this party.') }}</flux:subheading>
     </div>

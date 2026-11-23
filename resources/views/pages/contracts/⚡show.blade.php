@@ -566,9 +566,12 @@ new class extends Component {
 }; ?>
 
 <section class="w-full max-w-6xl space-y-6">
+    <x-slot:breadcrumbs>
+        <x-contract-breadcrumbs :contract="$contract" />
+    </x-slot:breadcrumbs>
+
     <div class="flex flex-wrap items-start justify-between gap-4">
         <div>
-            <x-contract-breadcrumbs :contract="$contract" />
             <div class="flex flex-wrap items-center gap-3">
                 <flux:heading size="xl" level="1">{{ $contract->title }}</flux:heading>
                 @if ($this->versions->count() > 1)

@@ -39,6 +39,12 @@ new #[Title('Organisations')] class extends Component {
 }; ?>
 
 <section class="w-full max-w-3xl space-y-8">
+    <x-slot:breadcrumbs>
+        <flux:breadcrumbs>
+            <flux:breadcrumbs.item>{{ __('Organisations') }}</flux:breadcrumbs.item>
+        </flux:breadcrumbs>
+    </x-slot:breadcrumbs>
+
     <div>
         <flux:heading size="xl" level="1">{{ __('Organisations') }}</flux:heading>
         <flux:subheading>{{ __('Organisations you own, and those where you have been invited to a contract.') }}</flux:subheading>

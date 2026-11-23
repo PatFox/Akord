@@ -80,12 +80,15 @@ new class extends Component {
 }; ?>
 
 <section class="w-full max-w-4xl space-y-8">
-    <div>
-        <flux:breadcrumbs class="mb-2">
+    <x-slot:breadcrumbs>
+        <flux:breadcrumbs>
             <flux:breadcrumbs.item :href="route('dashboard')" wire:navigate>{{ __('Organisations') }}</flux:breadcrumbs.item>
             <flux:breadcrumbs.item :href="route('organisations.show', $organisation)" wire:navigate>{{ $organisation->name }}</flux:breadcrumbs.item>
             <flux:breadcrumbs.item>{{ __('Parties') }}</flux:breadcrumbs.item>
         </flux:breadcrumbs>
+    </x-slot:breadcrumbs>
+
+    <div>
         <flux:heading size="xl" level="1">{{ __('Parties') }}</flux:heading>
         <flux:subheading>{{ __('People, teams and agents that take part in contracts. Attach them to a contract from its settings.') }}</flux:subheading>
     </div>

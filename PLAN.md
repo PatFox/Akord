@@ -400,14 +400,14 @@ Replaces "claim a code with curl, then hand-edit `mcp.json`" for MCP clients. Cl
   - `shouldSend` re-checks `Contract::visibleTo()` at delivery, so someone removed from the contract in the meantime hears nothing.
   - Content: the contract ("Payments API v1"), one sentence (reusing `ActivityDescription`), an optional detail line, and a link to the step (edits, comments) or the contract. Step descriptions and comment bodies are never sent; they stay behind the link and its access checks.
   - Emails escape Markdown in participants' text (titles, names), so a step titled `[Click](https://…)` can't put a link in an email that comes from Akord.
-- **In app:** `/notifications` (`pages::notifications.index`) lists the latest 100, unread highlighted. Clicking one marks it read and opens its link; "Mark all as read". The sidebar's Notifications item shows the unread count. The count updates on navigation, not live.
+- **In app:** `/notifications` (`pages::notifications.index`) lists the latest 100, unread highlighted. Clicking one marks it read and opens its link; "Mark all as read". The header's bell shows the unread count. The count updates on navigation, not live.
 - **Migration:** `2026_11_13_112756_create_notifications_table` (Laravel's standard table: uuid, morphs, text, so it is portable under D12).
 - **Tests:** `tests/Feature/NotificationsTest.php`, 8 tests:
   - Each row of the table above, including the author, unattached owners, outsiders and non-required parties not being told, and the cancelled-approval flag going only to the affected party.
   - Unverified email gets the in-app notification only.
   - Lost access means no delivery.
   - Markdown escaping in the email.
-  - The page: listing, the sidebar count, opening (marks read, redirects to the step), someone else's notification is 404, and mark all read.
+  - The page: listing, the header bell's count, opening (marks read, redirects to the step), someone else's notification is 404, and mark all read.
 - **Verified:**
   - Pint pass and Larastan 0 errors (through `composer test`).
   - `php artisan test` on SQLite: 191 passed plus 1 skipped.
@@ -734,7 +734,7 @@ Update with `powershell -ExecutionPolicy Bypass -File $env:LOCALAPPDATA\Akord\ak
   - `ContractReadiness::countingApprovals()` is the one query for "which approvals count", used by the report and by each step.
 - **Archived steps** are listed, read-only, under "N archived steps" at the bottom of the panel.
 - **Long titles (2026-11-20):** the step list used `min-w-fit`, so with `truncate` (no wrapping) a long title widened the list past the panel and the party columns scrolled out of view. The list's minimum width is now the fixed columns plus 14rem for the title (it scrolls sideways only below that, e.g. on phones). Step titles wrap anywhere (long paths) and are clamped to three lines with an ellipsis while the step is collapsed, in full when open, with the full title as a tooltip. Phase and checklist item titles wrap too, and `<x-markdown>` breaks long words and inline code.
-- **Collapsible sidebar (2026-11-20):** `flux:sidebar collapsible` with the collapse button on desktop too. Collapsed it shows icons only (labels as tooltips); Flux remembers the choice in localStorage (`flux-sidebar-collapsed-desktop`). The logo becomes the green tick and gives way to the expand button on hover. The nav items no longer sit in a headed group, because Flux hides grouped items when collapsed. Unread notifications also show as a dot on the bell, since the count badge is hidden when collapsed.
+- **Collapsible sidebar (2026-11-20):** replaced by the header bar (2026-11-23, below).
 - **Step filter (2026-11-20):** a segmented **All / Not fully approved / Awaiting me** control in the steps panel (`?show=unapproved|mine`, property `$show`, computed `shownStepIds`). "Not fully approved" keeps steps missing any required party's counting approval; "Awaiting me" keeps steps missing the acting party's, and is offered only to someone acting as a required approver (otherwise, and with no required approvers, the page falls back to All). A phase with no kept steps shows just its header (counts included); a note says when nothing is left. Dragging is off while filtering, because positions count hidden steps. Approving a step in a filtered view drops it straight away. A step link (`#step-…`) to a step the filter hides switches back to All first.
 - **Linked changes (2026-11-20):** in the "contract changed while you were reviewing it" list, each change to a step (or its comment or approval) links to the step (`#step-{id}`, `-comments` for comments). The link switches to the Steps tab in place and sets the hash, so it never reloads the page, which would quietly accept the new state as reviewed.
 
@@ -815,6 +815,17 @@ Update with `powershell -ExecutionPolicy Bypass -File $env:LOCALAPPDATA\Akord\ak
 - **MySQL (D12):** run on NUC03's MySQL 8.4 during the deploy, after a backup (`akord-v0.1.0-pre.111c1d8.d16-20261122-150202.sql`, 38 tables). Before: five agent parties, each with one active connection holding all five abilities, and no tokens. After (69 ms + 116 ms): all five have `["read", "comment", "edit", "approve", "create"]`, people `NULL`; `agent_connections.abilities` and `agent_claim_codes.abilities` are gone; `agent_connection_links` has its unique `token_hash` and both foreign keys. `down()` is not checked on MySQL (destructive commands are prohibited in production).
 - **Deployed** to NUC03 on 2026-11-22 in the uncommitted build `v0.1.0-pre.111c1d8.links`. Checked afterwards: `/up` and `/login` 200; `GET /connect/<unknown>` 404 Markdown and `POST` 404 JSON (so the new routes run and the POST is past CSRF); queue and Reverb active; no errors in the log; this repo's OAuth connection (party OMP - Akord) still lists contracts over MCP.
 - **Not done:** an end-to-end run with omp (agent follows the link, `/mcp reload`, `/mcp reauth akord`); the Agent access page was not opened in a browser on NUC03.
+
+### Change: header bar instead of the sidebar (2026-11-23)
+
+- **Layout** (`layouts/app.blade.php`, now the whole page shell; `layouts/app/sidebar` and the unused starter `layouts/app/header` are gone): a floating bar, sticky at the top, as wide as the widest page (`max-w-6xl`), with two rows:
+  - Top: the logo (to the dashboard) on the left; on the right a light/dark switch (moon in light mode, sun in dark; `$flux.dark = ! $flux.dark`, saved by Flux in localStorage as `flux.appearance`, so it replaces "System" from the Appearance settings), the notifications bell (unread count as a badge, `99+` above 99) and the user menu (avatar and name; Settings, Log out). The name hides below `sm`.
+  - Bottom: the breadcrumb. Pages set it with `<x-slot:breadcrumbs>` inside their root element; Livewire forwards slots from a page to its layout. A page without one gets no second row. Long crumbs shrink and truncate instead of wrapping. The slot renders with the page, so a Livewire update (not a navigation) does not refresh it.
+- **Content** is centred under the bar: each page keeps its own `max-w-*`, inside a centred `max-w-6xl` column.
+- **Breadcrumbs added** for the dashboard (Organisations), Notifications and the settings pages (Settings › Profile, Security, Appearance).
+- `html` has `scroll-pt-36`, so step links (`#step-…`, `scrollIntoView`) stop below the bar.
+- **Removed:** the Repository link, `components/desktop-user-menu`, the sidebar-only Flux icon overrides (`folder-git-2`, `chevrons-up-down`, `layout-grid`, `book-open-text`), and the collapsed-sidebar logo variants in `components/app-logo`.
+- **Verified:** `vendor/bin/pest`: 262 passed plus 1 skipped. In a browser (light mode): dashboard and contract page at 1400 px, scrolled contract page (bar stays on top), and 390 px with the user menu open.
 
 ### Order of work
 

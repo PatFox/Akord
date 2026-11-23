@@ -8,6 +8,13 @@ new #[Title('Appearance settings')] class extends Component {
 }; ?>
 
 <section class="w-full">
+    <x-slot:breadcrumbs>
+        <flux:breadcrumbs>
+            <flux:breadcrumbs.item :href="route('profile.edit')" wire:navigate>{{ __('Settings') }}</flux:breadcrumbs.item>
+            <flux:breadcrumbs.item>{{ __('Appearance') }}</flux:breadcrumbs.item>
+        </flux:breadcrumbs>
+    </x-slot:breadcrumbs>
+
     @include('partials.settings-heading')
 
     <flux:heading level="2" class="sr-only">{{ __('Appearance settings') }}</flux:heading>

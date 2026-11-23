@@ -79,12 +79,15 @@ new class extends Component {
 }; ?>
 
 <section class="w-full max-w-4xl space-y-8">
+    <x-slot:breadcrumbs>
+        <flux:breadcrumbs>
+            <flux:breadcrumbs.item :href="route('dashboard')" wire:navigate>{{ __('Organisations') }}</flux:breadcrumbs.item>
+            <flux:breadcrumbs.item>{{ $organisation->name }}</flux:breadcrumbs.item>
+        </flux:breadcrumbs>
+    </x-slot:breadcrumbs>
+
     <div class="flex flex-wrap items-start justify-between gap-4">
         <div>
-            <flux:breadcrumbs class="mb-2">
-                <flux:breadcrumbs.item :href="route('dashboard')" wire:navigate>{{ __('Organisations') }}</flux:breadcrumbs.item>
-                <flux:breadcrumbs.item>{{ $organisation->name }}</flux:breadcrumbs.item>
-            </flux:breadcrumbs>
             <flux:heading size="xl" level="1">{{ $organisation->name }}</flux:heading>
         </div>
 

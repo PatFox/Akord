@@ -226,8 +226,11 @@ new class extends Component {
 }; ?>
 
 <section class="w-full max-w-5xl space-y-8">
-    <div>
+    <x-slot:breadcrumbs>
         <x-contract-breadcrumbs :contract="$contract" :current="__('Settings')" />
+    </x-slot:breadcrumbs>
+
+    <div>
         <flux:heading size="xl" level="1">{{ __('Contract settings') }}</flux:heading>
         @if ($contract->isAgreed())
             <flux:text class="mt-1">{{ __('This version is agreed and locked; start a new version to change parties or rules.') }}</flux:text>

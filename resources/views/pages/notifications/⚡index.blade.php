@@ -36,6 +36,12 @@ new #[Title('Notifications')] class extends Component {
 }; ?>
 
 <section class="w-full max-w-3xl space-y-6">
+    <x-slot:breadcrumbs>
+        <flux:breadcrumbs>
+            <flux:breadcrumbs.item>{{ __('Notifications') }}</flux:breadcrumbs.item>
+        </flux:breadcrumbs>
+    </x-slot:breadcrumbs>
+
     <div class="flex flex-wrap items-end justify-between gap-3">
         <div>
             <flux:heading size="xl" level="1">{{ __('Notifications') }}</flux:heading>
