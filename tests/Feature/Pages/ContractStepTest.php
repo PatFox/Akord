@@ -126,10 +126,22 @@ test('a reply to a reply joins its thread, so the step shows it', function () {
     stepItem($this, $this->s->alpha)->assertSeeInOrder(['Which status codes?', 'See the error step.', 'Including 409?']);
 });
 
-test('editors archive a step from its menu; viewers get no edit or archive actions', function () {
-    stepItem($this, $this->s->party(ContractRole::Viewer))->assertDontSee('Archive')->call('archive');
+test('editors propose archiving from the menu and can keep the step; it goes once the required parties approve', function () {
+    stepItem($this, $this->s->party(ContractRole::Viewer))->assertDontSee('Propose archiving')->call('archive');
+    expect($this->step->fresh()?->currentRevision?->proposes_archive)->toBeFalse();
+
+    stepItem($this, $this->s->alpha)->call('approve', 1);
+    stepItem($this, $this->s->alpha)->assertSee('Propose archiving')->call('archive')->assertDispatched('step-updated')
+        ->assertSee('Archiving proposed')->assertSee('Keep step')
+        ->call('keep')->assertDontSeeHtml('data-test="archive-proposal"');
+    // Keeping it restores the approval of its text.
+    expect($this->step->fresh()?->isArchived())->toBeFalse()
+        ->and($this->s->readiness()->outstanding)->toBe([['step_id' => $this->step->id, 'party_id' => $this->s->beta->party?->id]]);
+
+    stepItem($this, $this->s->alpha)->call('archive');
+    stepItem($this, $this->s->beta)->assertSee('Click to approve archiving this step.')->call('approve', 4);
     expect($this->step->fresh()?->isArchived())->toBeFalse();
 
-    stepItem($this, $this->s->alpha)->assertSee('Archive')->call('archive')->assertDispatched('step-updated');
+    stepItem($this, $this->s->alpha)->call('approve', 4);
     expect($this->step->fresh()?->isArchived())->toBeTrue();
 });

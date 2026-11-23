@@ -12,19 +12,18 @@ use Illuminate\Support\Carbon;
 use Laravel\Passport\Client;
 
 /**
- * An OAuth (MCP) client an owner approved to act as an agent party.
+ * An OAuth (MCP) client an owner approved to act as an agent party. What it may do is the party's (Party::agentAbilities()).
  *
  * @property string $id
  * @property string $party_id
  * @property string $oauth_client_id
  * @property string $approved_by
- * @property list<string> $abilities
  * @property Carbon|null $last_used_at
  * @property Carbon|null $revoked_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['party_id', 'oauth_client_id', 'approved_by', 'abilities', 'last_used_at', 'revoked_at'])]
+#[Fillable(['party_id', 'oauth_client_id', 'approved_by', 'last_used_at', 'revoked_at'])]
 class AgentConnection extends Model
 {
     use HasRandomId;
@@ -35,7 +34,6 @@ class AgentConnection extends Model
     protected function casts(): array
     {
         return [
-            'abilities' => 'array',
             'last_used_at' => 'datetime',
             'revoked_at' => 'datetime',
         ];

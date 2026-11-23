@@ -12,7 +12,7 @@ use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 
 #[Name('approve_step')]
-#[Description('Approve a step for your party. Pass the revision number you reviewed; if the content changed since, you get a 409 and must review again.')]
+#[Description('Approve a step for your party. Pass the revision number you reviewed; if the content changed since, you get a 409 and must review again. If that revision proposes archiving the step (proposes_archive), approving agrees to remove it: the step is archived once every required party approves.')]
 class ApproveStep extends AgentTool
 {
     public function handle(Request $request): Response

@@ -8,7 +8,7 @@ use InvalidArgumentException;
 
 /**
  * Who performs an action: a person acting for one of their parties (the party is
- * optional for owner-only administration), or an agent party with its token abilities.
+ * optional for owner-only administration), or an agent party with its abilities (Party::agentAbilities()).
  */
 final class Actor
 {
@@ -31,7 +31,7 @@ final class Actor
     }
 
     /**
-     * @param  list<string>  $abilities  the agent's token abilities
+     * @param  list<string>  $abilities  the agent party's abilities
      */
     public static function agent(Party $agent, array $abilities = ['*']): self
     {

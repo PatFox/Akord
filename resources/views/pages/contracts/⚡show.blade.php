@@ -28,6 +28,7 @@ use App\Support\ContractAccess;
 use App\Support\ContractPlan;
 use App\Support\RandomId;
 use App\Support\ReadinessReport;
+use App\Support\StepListing;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
@@ -169,6 +170,20 @@ new class extends Component {
     public function archivedSteps(): Collection
     {
         return $this->contract->steps()->whereNotNull('archived_at')->orderBy('archived_at')->get();
+    }
+
+    /**
+     * What the step components show, for all listed steps at once; loaded only if a step component mounts.
+     */
+    #[Computed]
+    public function stepListing(): StepListing
+    {
+        $steps = $this->phases->flatMap->steps;
+        if ($this->showArchived) {
+            $steps = $steps->concat($this->archivedSteps);
+        }
+
+        return new StepListing($this->contract, $this->actor(), $steps->pluck('id')->all());
     }
 
     #[Computed]
@@ -530,7 +545,7 @@ new class extends Component {
     {
         // Actions may have changed the contract during this request.
         $this->contract->refresh();
-        unset($this->report, $this->changeDescriptions, $this->phases, $this->requiredParties, $this->approved, $this->stageCounts, $this->archivedCount, $this->archivedSteps, $this->canEdit, $this->actingIsRequired, $this->actingHasSignedOff, $this->nextVersion, $this->versions, $this->canSetStatus, $this->plan, $this->checklistTabs, $this->shownStepIds);
+        unset($this->report, $this->changeDescriptions, $this->phases, $this->requiredParties, $this->approved, $this->stageCounts, $this->archivedCount, $this->archivedSteps, $this->stepListing, $this->canEdit, $this->actingIsRequired, $this->actingHasSignedOff, $this->nextVersion, $this->versions, $this->canSetStatus, $this->plan, $this->checklistTabs, $this->shownStepIds);
         // Tabs: steps, plan, or checklist-{id} for a checklist of this version (one that was replaced is gone).
         $checklistTab = str_starts_with($this->tab, 'checklist-') && $this->checklistTabs->contains('id', substr($this->tab, 10));
         if (! in_array($this->tab, ['steps', 'plan'], true) && ! $checklistTab) {
@@ -869,7 +884,7 @@ new class extends Component {
                                         @elseif ($this->canEdit)
                                             <span class="w-4 shrink-0"></span>
                                         @endif
-                                        <livewire:pages::contracts.step :$contract :$step :key="'step-component-'.$step->id" />
+                                        <livewire:pages::contracts.step :$contract :$step :listing="$this->stepListing" :key="'step-component-'.$step->id" />
                                     </div>
                                 @endforeach
                             </div>
@@ -917,7 +932,7 @@ new class extends Component {
                     <div class="divide-y divide-zinc-100 text-sm opacity-80 dark:divide-zinc-700/60" data-test="archived-steps">
                         @foreach ($this->archivedSteps as $step)
                             <div wire:key="archived-{{ $step->id }}" class="flex">
-                                <livewire:pages::contracts.step :$contract :$step :key="'archived-component-'.$step->id" />
+                                <livewire:pages::contracts.step :$contract :$step :listing="$this->stepListing" :key="'archived-component-'.$step->id" />
                             </div>
                         @endforeach
                     </div>

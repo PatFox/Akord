@@ -57,6 +57,6 @@ test('creating contracts needs the create ability and a project the agent is alr
     $this->agent->api('POST', 'contracts', ['project_id' => $this->project])->assertUnprocessable();
     [$error, $text] = $noCreate->tool('create_contract', ['project_id' => $this->project, 'title' => 'X']);
 
-    expect([$error, $text])->toBe([true, "403: This token lacks the 'create' ability."])
+    expect([$error, $text])->toBe([true, "403: This agent party lacks the 'create' ability."])
         ->and(Contract::query()->count())->toBe($before);
 });

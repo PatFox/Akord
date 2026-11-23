@@ -220,14 +220,22 @@ final class AgentApi
     }
 
     /**
+     * Proposes archiving the step (D16), or archives it at once when the contract has no required approvers.
+     *
      * @return array<string, mixed>
      */
     public function archiveStep(Actor $actor, string $contractId, string $stepId): array
     {
         $step = $this->visibleContract($actor, $contractId)->findStep($stepId);
-        $archived = app(ArchiveStep::class)->handle($actor, $step);
+        $step = app(ArchiveStep::class)->handle($actor, $step);
+        $current = $step->currentRevision()->firstOrFail();
 
-        return ['step_id' => $archived->id, 'archived' => $archived->isArchived()];
+        return [
+            'step_id' => $step->id,
+            'archived' => $step->isArchived(),
+            'archive_proposed' => ! $step->isArchived() && $current->proposes_archive,
+            'revision' => $current->number,
+        ];
     }
 
     /**
@@ -353,7 +361,7 @@ final class AgentApi
     private function authorizeRead(Actor $actor): void
     {
         if (! $actor->tokenAllows(ContractAbility::View->tokenAbility())) {
-            throw new AuthorizationException("This token lacks the 'read' ability.");
+            throw new AuthorizationException("This agent party lacks the 'read' ability.");
         }
     }
 

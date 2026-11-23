@@ -6,6 +6,7 @@ use App\Http\Controllers\Agents\AuthorizationController;
 use App\Models\ActivityEvent;
 use App\Models\AgentClaimCode;
 use App\Models\AgentConnection;
+use App\Models\AgentConnectionLink;
 use App\Models\Approval;
 use App\Models\Checklist;
 use App\Models\ChecklistItem;
@@ -140,6 +141,7 @@ class AppServiceProvider extends ServiceProvider
             'agent_claim_code' => AgentClaimCode::class,
             'activity_event' => ActivityEvent::class,
             'agent_connection' => AgentConnection::class,
+            'agent_connection_link' => AgentConnectionLink::class,
             'checklist' => Checklist::class,
             'checklist_stage' => ChecklistStage::class,
             'checklist_item' => ChecklistItem::class,

@@ -58,6 +58,11 @@ final class ContractPlan
                 $lines[] = '';
                 $lines[] = '### '.($p + 1).'.'.($s + 1).' '.self::inline($revision->title ?? '');
 
+                if ($revision?->proposes_archive) {
+                    $lines[] = '';
+                    $lines[] = '_Proposed for archiving: it leaves the contract once every required party approves._';
+                }
+
                 $description = trim($revision->description_md ?? '');
                 if ($description !== '') {
                     $lines[] = '';

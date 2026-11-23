@@ -5,7 +5,7 @@ namespace App\Exceptions;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 /**
- * An agent claim code that has been used or has expired (410 Gone).
+ * An agent claim code or connection link that has been used or has expired (410 Gone).
  */
 class ClaimCodeUnavailableException extends HttpException
 {

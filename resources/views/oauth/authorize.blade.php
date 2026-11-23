@@ -21,7 +21,7 @@
 <x-layouts::auth :title="__('Connect :name', ['name' => $client->name])">
     <div class="flex flex-col gap-6">
         <x-auth-header :title="__('Connect :name to Akord', ['name' => $client->name])"
-                       :description="__('This tool will act as one of your agent parties, with the abilities you choose.')" />
+                       :description="__('This tool will act as one of your agent parties. What it may do is set in Akord: the party’s abilities on its Agent access page, and its role on each contract.')" />
 
         <flux:callout :color="$isLoopback ? 'zinc' : 'amber'" icon="information-circle">
             <flux:callout.text>
@@ -54,15 +54,6 @@
                         @endforeach
                     </flux:select>
                 @endif
-
-                <div class="flex flex-col gap-2">
-                    <flux:label>{{ __('Abilities') }}</flux:label>
-                    <flux:checkbox checked disabled :label="__('Read contracts')" />
-                    @foreach (\App\Support\Agents\AgentAbilities::optionalLabels() as $ability => $label)
-                        <flux:checkbox name="abilities[]" :value="$ability" :checked="$ability === 'comment'" :label="$label" />
-                    @endforeach
-                    <flux:text size="sm">{{ __('The party’s role on each contract still applies.') }}</flux:text>
-                </div>
 
                 <flux:button type="submit" variant="primary" class="w-full" data-test="approve-connection">{{ __('Connect') }}</flux:button>
             </form>

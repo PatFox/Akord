@@ -52,6 +52,23 @@ class Approval extends Model
     }
 
     /**
+     * Parties with an active approval of the step's content as of this revision (whether or not they are required);
+     * a change away from it cancels these, and notifications tell them.
+     *
+     * @return list<string>
+     */
+    public static function partyIdsApproving(StepRevision $revision): array
+    {
+        /** @var list<string> */
+        return self::query()->active()
+            ->where('step_id', $revision->step_id)
+            ->whereRelation('revision', 'content_hash', $revision->content_hash)
+            ->orderBy('party_id')
+            ->pluck('party_id')
+            ->unique()->values()->all();
+    }
+
+    /**
      * @return BelongsTo<Step, $this>
      */
     public function step(): BelongsTo

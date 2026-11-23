@@ -91,6 +91,12 @@ class ContractActivity extends Notification implements ShouldQueue
                 ActivityDescription::for($this->activity),
                 $this->approvalCancelled ? $this->text('Your party’s approval of this step was cancelled. Review the new revision and approve it again.') : null,
             ],
+            'step.archive_proposed' => [
+                ActivityDescription::for($this->activity),
+                $this->approvalCancelled
+                    ? $this->text('Your party’s approval of this step no longer counts. The step leaves the contract once every required party approves archiving it.')
+                    : $this->text('The step leaves the contract once every required party approves archiving it.'),
+            ],
             'contract.ready' => [
                 $this->text(':contract is ready for sign-off', ['contract' => $title]),
                 $this->text('Every step is approved. Each required party now signs off the whole contract.'),

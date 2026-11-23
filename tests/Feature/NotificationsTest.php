@@ -4,6 +4,7 @@ use App\Actions\Comments\AddComment;
 use App\Actions\Contracts\InviteToContract;
 use App\Actions\Contracts\SignOffContract;
 use App\Actions\Invitations\AcceptInvitation;
+use App\Actions\Steps\ArchiveStep;
 use App\Actions\Steps\ReviseStep;
 use App\Enums\CommentKind;
 use App\Enums\ContractRole;
@@ -70,6 +71,19 @@ test('a content edit tells the parties whose approval it cancelled; a spacing-on
     // An edit links to the step itself; a comment (above) also opens its comments.
     Notification::assertSentTo($this->s->beta->user, ContractActivity::class, fn (ContractActivity $n) => str_contains((string) $n->toArray($this->s->beta->user)['detail'], 'approval of this step was cancelled')
         && $n->toArray($this->s->beta->user)['url'] === route('contracts.show', $this->s->contract).'#step-'.$step->id);
+});
+
+test('an archive proposal tells everyone else, and the parties whose approval it set aside that it did', function () {
+    Notification::fake();
+    $step = $this->s->step();
+    $this->s->approve($this->s->beta, $step);
+
+    app(ArchiveStep::class)->handle($this->s->alpha, $step);
+
+    expect(notifiedFor('step.archive_proposed', approvalCancelled: true))->toBe([$this->s->beta->user->id])
+        ->and(notifiedFor('step.archive_proposed', approvalCancelled: false))->toBe([$this->gamma->user->id]);
+    Notification::assertSentTo($this->gamma->user, ContractActivity::class, fn (ContractActivity $n) => $n->activity->type === 'step.archive_proposed'
+        && str_contains((string) $n->toArray($this->gamma->user)['detail'], 'once every required party approves'));
 });
 
 test('ready for sign-off goes to required parties only; agreement goes to everyone but the final signer', function () {

@@ -5,11 +5,9 @@ namespace App\Http\Controllers\Agents;
 use App\Http\Controllers\Controller;
 use App\Models\AgentConnection;
 use App\Models\Party;
-use App\Support\Agents\AgentAbilities;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\Rule;
 use Laravel\Passport\Bridge\Client;
 use Laravel\Passport\Bridge\Scope;
 use Laravel\Passport\Bridge\User;
@@ -19,7 +17,8 @@ use Symfony\Component\HttpFoundation\Response;
 
 /**
  * Approves an MCP client's OAuth request as one of the owner's agent parties: records the
- * AgentConnection (client → party + abilities), then lets Passport issue the code.
+ * AgentConnection (client → party), then lets Passport issue the code. What the client may do
+ * is the party's abilities and roles, set in Akord, not chosen here.
  * Approving again for the same party replaces that connection; connections the same
  * client holds for other parties are kept (one repo per party, see /mcp/agents/{party}).
  */
@@ -30,8 +29,6 @@ class ConnectAgentController extends Controller
         $validated = $request->validate([
             'auth_token' => ['required', 'string'],
             'party_id' => ['required', 'string'],
-            'abilities' => ['array'],
-            'abilities.*' => ['string', Rule::in(AgentAbilities::ALL)],
         ]);
 
         // Peek at Passport's pending request (Passport itself consumes it below).
@@ -50,7 +47,7 @@ class ConnectAgentController extends Controller
 
         $clientId = $authRequest->getClient()->getIdentifier();
 
-        DB::transaction(function () use ($clientId, $user, $party, $validated): void {
+        DB::transaction(function () use ($clientId, $user, $party): void {
             AgentConnection::query()->active()
                 ->where('oauth_client_id', $clientId)->where('approved_by', $user->getKey())->where('party_id', $party->id)
                 ->update(['revoked_at' => now()]);
@@ -59,7 +56,6 @@ class ConnectAgentController extends Controller
                 'party_id' => $party->id,
                 'oauth_client_id' => $clientId,
                 'approved_by' => $user->getKey(),
-                'abilities' => AgentAbilities::normalise($validated['abilities'] ?? []),
             ]);
         });
 

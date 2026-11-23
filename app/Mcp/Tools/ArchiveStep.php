@@ -12,7 +12,7 @@ use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 
 #[Name('archive_step')]
-#[Description('Archive a step: it leaves the contract and no longer needs approval, and any sign-offs are cancelled. Archiving cannot be undone in Akord; only do it when the user asks.')]
+#[Description('Propose archiving a step. It saves a new revision with the same text that proposes the archive (archive_proposed: true); the step stays in the contract, and its earlier approvals stop counting, until every required party approves that revision with approve_step, and then it is archived and leaves the contract. Any revise_step on it, even with the same text, withdraws the proposal. Without required approvers it is archived at once. Archived steps cannot be restored; only do it when the user asks.')]
 class ArchiveStep extends AgentTool
 {
     public function handle(Request $request): Response

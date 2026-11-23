@@ -51,6 +51,7 @@ This document records the agreed plan: v2, as amended by v3 and decisions D8–D
 | D13 ✅ | (2026-11-19) **A new version carries over the approvals** that counted on the agreed contract, since nothing has changed yet. Withdrawn approvals, sign-offs and comments stay with the old version. So a new version starts **ready for sign-off**, and every required party signs off again. |
 | D14 ✅ | (2026-11-19) **Each version has a status**: `open` (default), `complete` or `cancelled`, set by people, separate from the derived state. A version that is not open is locked like an agreed one (423) until it is reopened; invitations, the status itself and "start new version" still work. Closing and reopening keeps approvals and sign-offs and sends no notifications. Anyone who may edit steps changes it (owners, editor parties, agents with `edit`), only on the latest version. A new version starts open. The contracts list shows one row per contract (its latest visible version), open ones by default; agents' `list_contracts` also defaults to open. |
 | D15 ✅ | (2026-11-19, several per version since 2026-11-20) **Working checklists.** A contract version can have several checklists, each with a name unique within the version ignoring case (e.g. one per team), of stages and items, written by an agent from the plan (its own breakdown, or a copy of the phases and steps); items can link to the contract step they come from. Owners, editor parties and agents with `edit` tick and untick items, recording who and when. They are outside the fingerprint, so they change after agreement too and never affect approvals or sign-offs; a complete or cancelled version locks them. Creating one with an existing name replaces it, which needs `replace` if items are ticked. A new version copies them with their ticks. Activity is recorded, with no emails. |
+| D16 ✅ | (2026-11-21) **Archiving a step needs every required party's approval.** Archiving saves a revision with the same text that *proposes* the archive; its content hash differs from the text's, so the step's approvals stop counting and sign-offs are cancelled. The step stays in the contract until every required party approves that revision, and is then archived. Any later revision withdraws the proposal (the same text brings its earlier approvals back). Without required approvers a step is archived at once. |
 
 ## 2. Data model
 
@@ -62,10 +63,11 @@ Every entity's `id`, and every foreign key to one, is a random 16-character stri
 | `organisation_user` | organisation_id, user_id, role (`owner`) | Records org owners. Guests have no row. |
 | `users` | standard | Global accounts |
 | `projects` | organisation_id, name | |
-| `parties` | organisation_id, name, type (`individual`/`team`/`agent`) | Org-level, so a party can be reused across contracts |
+| `parties` | organisation_id, name, type (`individual`/`team`/`agent`), agent_abilities (agents only) | Org-level, so a party can be reused across contracts. An agent party's abilities (`read`, `comment`, `edit`, `approve`, `create`) apply to all its credentials |
 | `party_user` | party_id, user_id | Agents have no rows here |
-| agent tokens | Sanctum `personal_access_tokens`, attached to the agent party | Abilities: `read`, `comment`, `edit`, `approve` |
+| agent tokens | Sanctum `personal_access_tokens`, attached to the agent party | The party's abilities apply, not the token's |
 | `agent_claim_codes` | party_id, code_hash, expires_at, claimed_at | One-time code an agent exchanges for a token |
+| `agent_connection_links` | party_id, token_hash, created_by, expires_at, used_at | One-time link with which an agent fetches its party's MCP config |
 | `contracts` | project_id, title, version, previous_version_id, agreed_at, agreed_fingerprint, require_human_signoff (bool, default false), status (`open`/`complete`/`cancelled`, default `open`) | `status` is set by people (D14). There's no state column: agreed means `agreed_at` is set; `draft` and `ready_for_signoff` are worked out when needed. |
 | `contract_party` | contract_id, party_id, role (editor/commenter/viewer), is_required_approver | Controls access and approval |
 | `invitations` | organisation_id, contract_id, party_id, email, token_hash, expires_at, accepted_at, invited_by | Invitations are per contract |
@@ -101,7 +103,7 @@ Every entity's `id`, and every foreign key to one, is a random 16-character stri
   - `draft`: the default.
   - `ready_for_signoff`: there is at least one active step, and all active steps are approved by all required parties.
   - `agreed` (locked): every required party has signed off on the current fingerprint.
-  - Any step content edit, new step, archive, or change to required approvers sends the contract back to `draft`. Spacing-only edits do not (D11).
+  - Any step content edit, new step, archive proposal, or change to required approvers sends the contract back to `draft`. Spacing-only edits do not (D11).
 - **Fingerprint:** a hash of the set of (active step, current revision `content_hash`) pairs plus the set of required parties. Order is ignored and archived steps are excluded. A sign-off counts only if its fingerprint matches the current one. Because the fingerprint uses `content_hash`, spacing-only edits do not change it.
 
 | Change | Cancels step approvals | Cancels sign-offs |
@@ -109,7 +111,9 @@ Every entity's `id`, and every foreign key to one, is a random 16-character stri
 | Step title or description edited (content change) | Yes | Yes |
 | Step edited with spacing-only changes | No | No |
 | Step added | n/a | Yes (back to draft) |
-| Step archived | n/a | Yes |
+| Archive proposed (D16) | Yes (approvals of its text stop counting) | Yes |
+| Archive proposal withdrawn by a new revision | Approvals of the proposal stop counting; earlier approvals of the same text count again | Yes |
+| Proposal approved by every required party: step archived | n/a | Nothing left to cancel (the contract wasn't ready while it was pending) |
 | Required party added or removed | No | Yes |
 | Step reordered or moved to another phase | No | No |
 | Phase renamed or reordered | No | No |
@@ -120,7 +124,7 @@ Every entity's `id`, and every foreign key to one, is a random 16-character stri
 - **One rule everywhere:** `ContractPolicy` plus a `Contract::visibleTo($actor)` scope.
   - Organisation owner: full access.
   - Anyone else: must belong to a party attached to the contract. That party's role decides what they can do.
-  - Agents follow the same rule, further limited by their token abilities.
+  - Agents follow the same rule, further limited by their party's abilities.
 - **Contract status (D14):** changed with the edit ability, like steps: owners acting for their own party, editor parties, and agents with `edit`. Commenters and viewers cannot.
 - **Projects list:** shows only projects with at least one visible contract; owners see all of them.
 - **No global tenant scope.** Every query starts from the actor's visible records, and nested route bindings are checked (a step must belong to the contract in the URL). A global scope was rejected because it tends to be bypassed in jobs and MCP calls.
@@ -190,15 +194,15 @@ Every entity's `id`, and every foreign key to one, is a random 16-character stri
 - **Plan refinements made while implementing:**
   - `ApproveStep` takes the revision number the approver reviewed. It returns 409 if the content changed since then, and succeeds if the only difference is spacing (D11). This is the same "approve what you saw" rule as sign-off.
   - Ready for sign-off also requires **at least one required approver**, otherwise nobody could ever sign off.
-  - States are always worked out from the data. "Back to draft" in §2 means approvals stop counting and sign-offs are invalidated. Archiving the last unapproved step can make a contract ready.
+  - States are always worked out from the data. "Back to draft" in §2 means approvals stop counting and sign-offs are invalidated. Archiving the last unapproved step can make a contract ready (since D16, once every required party approves the proposal).
   - A sign-off from a non-required party is rejected (403) rather than recorded and ignored.
   - `StartNewVersion` also copies parties, roles, required approvers and `require_human_signoff`, because otherwise nobody but owners could see v2. Steps keep their original author, and their change note says which version they came from. Only agreed contracts can get a new version, and only once.
   - Since D13 (2026-11-19) it also copies each step's counting approvals: active, and for a revision with the step's current content hash. They go onto revision 1 of the new step, with the same party and user.
   - The new version then records `contract.ready` on its own timeline, so the feed shows it and the required parties are notified as usual. `contract.version_started` stays on the old version.
   - `AttachParty` also changes an existing party's role. A party from another organisation is reported as missing (404).
-  - Identical edits, repeat approvals, repeat sign-offs and re-archiving are no-ops.
+  - Identical edits, repeat approvals, repeat sign-offs, re-archiving and re-proposing an archive are no-ops.
 - **Activity and events:**
-  - Every change writes one `activity_events` row through `ActivityLog`, using these types: `phase.created|renamed`, `phases.reordered`, `step.created|revised|moved|archived`, `steps.reordered`, `comment.added|resolved`, `approval.created|withdrawn`, `party.attached|role_changed|required_changed`, `signoff.created|withdrawn`, `signoffs.invalidated`, `contract.ready|no_longer_ready|agreed|version_started`.
+  - Every change writes one `activity_events` row through `ActivityLog`, using these types: `phase.created|renamed`, `phases.reordered`, `step.created|revised|moved|archive_proposed|archived`, `steps.reordered`, `comment.added|resolved`, `approval.created|withdrawn`, `party.attached|role_changed|required_changed`, `signoff.created|withdrawn`, `signoffs.invalidated`, `contract.ready|no_longer_ready|agreed|version_started`.
   - Each row fires **one** event class, `App\Events\ActivityRecorded`, which is dispatched only after the transaction commits. This replaces the per-type event classes in Phase 5.
   - Polymorphic columns store stable short names (`step`, `party`, `user`, …; `Relation::enforceMorphMap`) instead of class names.
 - **Email normalisation:** the `App\Casts\NormalisedEmail` cast on `User::email` and `Invitation::email` trims and lowercases on every write. Fortify's `lowercase_usernames` already normalises login, registration, password reset and profile updates. Lookups must call `NormalisedEmail::normalise()`.
@@ -360,7 +364,7 @@ Replaces "claim a code with curl, then hand-edit `mcp.json`" for MCP clients. Cl
 
 - **OAuth server:** Laravel Passport 13 issues the tokens; `laravel/mcp`'s `Mcp::oauthRoutes()` (`routes/ai.php`) adds discovery (`/.well-known/oauth-protected-resource/mcp`, `/.well-known/oauth-authorization-server`) and dynamic client registration (`POST /oauth/register`, public clients, PKCE S256). An unauthenticated `/mcp` call gets 401 with `WWW-Authenticate: Bearer … resource_metadata="…"`, so standard MCP clients discover the rest. Access tokens last a day, refresh tokens 60 days (`AppServiceProvider::configureOAuth`).
 - **Who the token is:** OAuth tokens belong to the owner who approved them (guard `api`, driver `passport`; `User` uses Passport's `HasApiTokens` and `OAuthenticatable`). A new `agent_connections` row (`oauth_client_id`, `party_id`, `approved_by`, `abilities`, `last_used_at`, `revoked_at`) maps the client to an agent party. `AgentActor` resolves it to `Actor::agent($party, $abilities)`; it refuses tokens without the `mcp:use` scope, revoked connections, and approvers who are no longer owners of the party's organisation (403). `/mcp` and `/api/v1` accept both credentials (`auth:sanctum,api`).
-- **Consent screen** (`resources/views/oauth/authorize.blade.php`, rendered by Passport's `GET /oauth/authorize` after login): shows the tool's name and where the approval goes, lets the owner pick one of their agent parties and the abilities (read always; comment ticked by default; edit and approve opt-in). `POST /oauth/akord/approve` (`ConnectAgentController`) checks the owner and party, records the connection (replacing an earlier one for the same client and owner), then hands over to Passport's approve action. Cancel uses Passport's deny route. Passport skips the screen while the client still has a valid token for that user, which is safe because disconnecting revokes those tokens.
+- **Consent screen** (`resources/views/oauth/authorize.blade.php`, rendered by Passport's `GET /oauth/authorize` after login): shows the tool's name and where the approval goes, lets the owner pick one of their agent parties and the abilities (read always; comment ticked by default; edit and approve opt-in). `POST /oauth/akord/approve` (`ConnectAgentController`) checks the owner and party, records the connection (replacing an earlier one for the same client and owner), then hands over to Passport's approve action. Cancel uses Passport's deny route. Passport skips the screen while the client still has a valid token for that user, which is safe because disconnecting revokes those tokens. *Abilities moved to the party on 2026-11-22 (see "Change: connection links, abilities set on the party").*
 - **Redirect limits:** `config/mcp.php` allows self-registration only for `http://localhost` and `http://127.0.0.1` callbacks (local tools such as omp and Claude Code), so a stranger can't register a client that sends approvals to their own site. Hosted clients can be added with `AKORD_MCP_REDIRECT_DOMAINS`.
 - **Agent access page:** a "Connect an MCP client" section with the omp commands and the MCP URL, and a list of connected tools (abilities, approver, last used) with **Disconnect** (`RevokeAgentConnection`: marks the connection revoked and revokes its access and refresh tokens).
 - **Fallback client:** `php artisan akord:oauth-client [name] [--redirect=…]` pre-registers a public client (default callbacks `http://localhost:3000/callback` and `http://127.0.0.1:3000/callback`, omp's default) for MCP clients that can't register themselves; its ID goes in the client's OAuth settings (omp: `"oauth": {"clientId": "…"}`).
@@ -443,8 +447,8 @@ Replaces "claim a code with curl, then hand-edit `mcp.json`" for MCP clients. Cl
   - MCP clients send the server URL as the OAuth `resource`. When that is a party URL, the screen is fixed to that party, or explains that the signed-in user doesn't own it.
   - `App\Http\Controllers\Agents\AuthorizationController` replaces Passport's (bound in `AppServiceProvider::register`). Passport skips the screen while the client already holds a valid token for the user. The replacement skips it only if the client is already connected for the party being signed in for, so a client reused for a second party's URL still gets a connection recorded.
   - `App\Support\Agents\PartyMcpUrl` builds and parses party URLs.
-- **Agent access page:** shows the party's MCP URL and the `.omp/mcp.json` to commit (`{"mcpServers": {"akord": {"type": "http", "url": "…/mcp/agents/{id}"}}}`), then `/mcp reauth akord` in that repo.
-- **Changing abilities after connecting** (added after a report that "Edit steps" on the Agent access page didn't save).
+- **Agent access page:** shows the party's MCP URL and the `.omp/mcp.json` to commit (`{"mcpServers": {"akord": {"type": "http", "url": "…/mcp/agents/{id}"}}}`), then `/mcp reauth akord` in that repo. *Superseded 2026-11-22 by connection links.*
+- **Changing abilities after connecting** (added after a report that "Edit steps" on the Agent access page didn't save). *Superseded 2026-11-22: abilities are the party's, not each credential's.*
   - The checkboxes the user had used were the claim-code form's input for the next code, never a saved setting. They're now labelled so.
   - Each connected tool and each API token now has its own Comment / Edit steps / Approve checkboxes in its row.
   - Every click saves through `App\Actions\Organisations\SetAgentAbilities`. It is owner-only, returns 404 for a credential of another party or a revoked connection, and always keeps `read`.
@@ -767,6 +771,51 @@ Update with `powershell -ExecutionPolicy Bypass -File $env:LOCALAPPDATA\Akord\ak
 - **Deployed** to NUC03 on 2026-11-20 in the uncommitted build `v0.1.0-pre.9666667.oauth` (§8). Before that, the workaround was to set `callbackPort` to the port the client was registered with (NUC03's `oauth_clients.redirect_uris`).
 - **Cap (after that deploy, not yet on NUC03):** Passport validates the authorize request before sending a guest to log in, so the port rule has to run for guests too, which let anyone add ports. A client now keeps at most 10 redirect URIs: the one it registered, plus the latest others. A deploy-check probe on NUC03 added `http://localhost:3334/callback` to client `01a1f354…` (party `kngbw6thjyj42tpf`), the port that repo now uses.
 
+### Change: long contracts load faster (2026-11-20)
+
+- **Problem:** every step on the contract page is its own Livewire component, and each loaded its own data and repeated the acting party and ability checks: about 45 queries per step. A 160-step test contract took 7,172 queries (3.6 s locally); NUC03's 84-step contract was slow to open on the Steps tab.
+- **Fix:** `App\Support\StepListing` loads what the step rows show (current revisions with authors, required parties, counting approvals, the acting party's approval states, comment threads and counts, abilities) for all steps in a fixed number of queries. The page hands one to each step component's mount (`:listing`); it loads lazily, so page re-renders that mount no step load nothing. Later requests of a step component load their own data through the same static helpers. 160 steps: 112 queries, ~1 s; NUC03's 84 steps: 107 queries, ~0.7 s.
+- **Test:** `ContractPageTest` "the steps panel loads in the same number of queries however many steps it lists".
+- **Not done:** `steps-refresh` (acting party switch, status change, party activity) still re-renders every step component with its own queries; each step still renders ~20 KB of hidden markup.
+- **Deployed** to NUC03 on 2026-11-20 in the uncommitted build `v0.1.0-pre.111c1d8.steps`.
+
+### Change: archiving needs every required party's approval (2026-11-21, D16)
+
+- **Data:** migration `2026_11_21_120000_add_proposes_archive_to_step_revisions` adds `step_revisions.proposes_archive` (boolean, default false). `StepRevision::contentHash()` adds an `'archive'` marker to the hashed content of a proposal; the hash of every other revision is unchanged, so stored sign-off fingerprints stay valid.
+- **Actions:** `ArchiveStep` saves revision N+1 with the same text and `proposes_archive` (activity `step.archive_proposed`, with `cancelled_party_ids`), or archives at once when the contract has no required approvers. `ArchiveStep::settle()` archives steps whose proposal every required party approves (`step.archived` with `approved_revision`); `ContractTransaction` runs it after every change to an unlocked contract, so it follows the last approval, a required party's removal or a reopening. `ReviseStep` creates a revision even for identical text when the current one is a proposal, withdrawing it (`archive_withdrawn`, `text_changed` in the payload).
+- **Web:** the step menu offers **Propose archiving** (or **Archive** without required approvers); a pending step shows an amber "Archiving proposed" badge, a callout naming who proposed it with **Keep step**, and tick tooltips about approving the archive. History marks proposal revisions.
+- **Agents:** `archive_step` returns `archived`, `archive_proposed` and `revision`; steps and revisions carry `archive_proposed` / `proposes_archive`; tool descriptions, server instructions and the skill explain it (plugin 1.7.0). The plan document marks pending steps.
+- **Notifications:** a proposal tells everyone on the contract; parties whose approval it set aside are told so.
+- **Tests:** `ArchiveApprovalTest` (proposal lifecycle, withdrawal, no required approvers, settling on a required party's removal, the hash), a notification test, and the existing archive tests now archive through a proposal (`Scenario::archive()`).
+- **MySQL (D12):** checked on NUC03's MySQL 8.4 during the deploy, after a backup (`akord-v0.1.0-pre.111c1d8.steps-20261122-140344.sql`): the column is `tinyint(1) NOT NULL DEFAULT 0` after `description_md`, and the 182 existing revisions are 0. `migrate:rollback` is refused in production (destructive commands are prohibited), so `down()` is not checked on MySQL. The flow was run on MySQL with real data inside a rolled-back transaction (queue, broadcasts and mail discarded): two steps on contract `5iew756h5ph3jl1n`; a proposal (revision 2) stayed active and kept the contract from being ready, was archived only after the second of two required approvals, recorded `step.archive_proposed` and `step.archived`, and keeping the other step restored its original hash. Row counts were unchanged afterwards.
+- **Deployed** to NUC03 on 2026-11-22 in the uncommitted build `v0.1.0-pre.111c1d8.d16` (also contains the earlier speed-up). After the switch, compiled views were cleared so the shared Livewire cache is rebuilt from this release.
+
+### Change: connection links, abilities set on the party (2026-11-22)
+
+**Problem.** Connecting an agent meant copying `.omp/mcp.json` from the Agent access page into the repo, and the owner chose the agent's abilities on the OAuth approval screen, so what an agent could do was decided during sign-in, per credential, instead of in Akord.
+
+**Decisions:**
+- **Abilities belong to the agent party** (`parties.agent_abilities`), set only on the Agent access page. Every credential of the party (MCP sign-ins and claim-code tokens) gets them, read on every request. Per-contract permissions stay the party's role on each contract (editor, commenter, viewer), set in the contract's settings.
+- **A one-time connection link** replaces copying the config. The agent fetches the config with it and saves it git-ignored; the user then runs `/mcp reload` and `/mcp reauth akord` and approves in the browser. omp only lets the user run `/mcp` commands, so the agent cannot finish the sign-in itself. The browser sign-in (OAuth) stays; the link carries no credential.
+
+**Changes:**
+- **Data:** migration `2026_11_22_120000_move_agent_abilities_to_parties` adds `parties.agent_abilities` (json, null for people and teams). Each agent party gets every ability any of its live credentials had (active connections, Sanctum tokens; `*` means all), so no connected agent loses one; a party without credentials gets read and comment. It then drops `agent_connections.abilities` and `agent_claim_codes.abilities`. `down()` copies the party's abilities back to each credential. Migration `2026_11_22_120100_create_agent_connection_links_table` adds `agent_connection_links` (`token_hash`, `created_by`, `expires_at`, `used_at`; morph name `agent_connection_link`).
+- **Abilities:** `Party::agentAbilities()`; `AgentActor` uses it for both credential kinds; `SetAgentAbilities` sets the party's (owner-only, agent parties only, `read` kept). New agent parties get `AgentAbilities::DEFAULT` (read, comment) in `CreateParty`. Claim codes and their tokens no longer carry abilities (`CreateAgentClaimCode::handle($owner, $agent)`; tokens are created with Sanctum's default `*` and ignored). The approval screen (`oauth/authorize`) and `ConnectAgentController` no longer take abilities. Refusals now say "This agent party lacks the '…' ability."
+- **Connection links:** `CreateAgentConnectionLink` (owner-only, agent parties only; 40 random characters, only the hash stored, `akord.agents.connection_link_hours`, default 24). `ConnectionLinkController`, public, `throttle:agent-claim`:
+  - `GET /connect/{token}` returns Markdown instructions for the agent and does not use up the link, so link previews and repeated reads are harmless: POST to the link; for omp, merge the `akord` server into `.omp/.mcp.json` (removing an `akord` entry from `.omp/mcp.json`, which would take precedence) and git-ignore it; for Claude Code, `claude mcp add --transport http akord <url>`; then tell the user to run `/mcp reload` and `/mcp reauth akord`.
+  - `POST /connect/{token}` uses up the link (row locked) and returns `PartyMcpUrl::config()`, `{"mcpServers": {"akord": {"type": "http", "url": "…/mcp/agents/{id}"}}}`. Used or expired: 410; unknown: 404; errors are JSON or Markdown, not HTML, because an agent reads them.
+  - The POST route is excluded from CSRF with `withoutMiddleware(PreventRequestForgery::class)`. Laravel 13 renamed the web group's CSRF middleware; excluding `ValidateCsrfToken` had no effect (419), which only the live check below caught, because tests skip CSRF.
+- **Agent access page:** one **Abilities** row for the party (each click saves); **Create connection link** (shown once, with "Connect this repository to Akord: <link>" to paste to the agent) and a list of recent links; the MCP URL for setting a client up by hand; connected tools and tokens without ability columns; each contract with the party's role. The copy-this-`mcp.json` block and `partials/agent-abilities` are gone.
+- **Skill** (plugin 1.7.0, not yet released): the config is `.omp/.mcp.json`, git-ignored; abilities and roles are set in Akord; without tools, ask the user for a connection link.
+- **Tests:** `AgentConnectionLinkTest` (instructions until used, the config exactly once, then 410; expired 410 and unknown 404; owner-only, agent parties only), party abilities over a token (`AgentAccessTest`) and over an OAuth connection (`OAuthConnectTest`), `AgentClient::on` sets the party's abilities.
+- **Verified:**
+  - Pint (changed files) pass, Larastan 0 errors, `vendor/bin/pest`: 262 passed plus 1 skipped.
+  - Migration on a copy of the dev SQLite database with added credentials: an active `[read, edit]` connection plus a revoked `[read, approve]` one gave `[read, edit]`; a `*` token gave all five; no credentials gave `[read, comment]`; people and teams null; both ability columns dropped; rollback restored each credential's abilities.
+  - Against the running app (on that copy): `GET /connect/{token}` twice gave the Markdown (`text/markdown`), the first `curl -sS -X POST` gave the config JSON, the second 410 with the message, and GET then 410.
+- **MySQL (D12):** run on NUC03's MySQL 8.4 during the deploy, after a backup (`akord-v0.1.0-pre.111c1d8.d16-20261122-150202.sql`, 38 tables). Before: five agent parties, each with one active connection holding all five abilities, and no tokens. After (69 ms + 116 ms): all five have `["read", "comment", "edit", "approve", "create"]`, people `NULL`; `agent_connections.abilities` and `agent_claim_codes.abilities` are gone; `agent_connection_links` has its unique `token_hash` and both foreign keys. `down()` is not checked on MySQL (destructive commands are prohibited in production).
+- **Deployed** to NUC03 on 2026-11-22 in the uncommitted build `v0.1.0-pre.111c1d8.links`. Checked afterwards: `/up` and `/login` 200; `GET /connect/<unknown>` 404 Markdown and `POST` 404 JSON (so the new routes run and the POST is past CSRF); queue and Reverb active; no errors in the log; this repo's OAuth connection (party OMP - Akord) still lists contracts over MCP.
+- **Not done:** an end-to-end run with omp (agent follows the link, `/mcp reload`, `/mcp reauth akord`); the Agent access page was not opened in a browser on NUC03.
+
 ### Order of work
 
 Phases 1–13 are done, in order.
@@ -863,6 +912,9 @@ Phases 1–13 are done, in order.
     - There was no Apache reload: after 2 minutes in maintenance mode, all 20 probe requests ran the new release.
     - Laravel 13.42 runs on PHP 8.5 without errors.
     - **Release history:**
+      - `v0.1.0-pre.111c1d8.links` (2026-11-22): connection links and party abilities, `move_agent_abilities_to_parties` and `create_agent_connection_links_table` migrations; backup before it is `backups/akord-v0.1.0-pre.111c1d8.d16-20261122-150202.sql`. No Apache reload: 125 s in maintenance mode, then `view:clear`.
+      - `v0.1.0-pre.111c1d8.d16` (2026-11-22): D16 archive approval, `add_proposes_archive_to_step_revisions` migration (27 ms); backup before it is `backups/akord-v0.1.0-pre.111c1d8.steps-20261122-140344.sql`. Right after it, contract pages returned **500** for about two minutes: see "compiled views" below.
+      - `v0.1.0-pre.111c1d8.steps` (2026-11-20): the contract-page speed-up (`StepListing`); backup before it is `backups/akord-v0.1.0-pre.9666667.oauth-20261120-220648.sql`.
       - `v0.1.0-pre.9666667` (2026-11-20): long titles, sidebar, step filter, linked changes, named checklists, `name_checklists` migration (108 ms; the existing checklist became "Mobile App"); backup before it is `backups/akord-v0.1.0-pre.3577ac5.layout-20261120-165350.sql`.
       - `v0.1.0-pre.3577ac5.layout` (2026-11-20): the uncommitted long-title and sidebar build; backup before it is `backups/akord-v0.1.0-pre.3577ac5-20261120-152641.sql`.
       - `v0.1.0-pre.3577ac5` (2026-11-19): D15 checklists, `create_checklists_tables` migration (447 ms); backup before it is `backups/akord-v0.1.0-pre.ada0c9b-20261119-172407.sql`.
@@ -880,7 +932,8 @@ Phases 1–13 are done, in order.
     - MySQL `root` has its own password (not socket auth), so creating databases or users needs the user (`mysql -u root -p`); `sudo` alone is refused.
     - The database started empty. The SQLite file from the first install, `shared/database/akord.sqlite` (integer ids, one account and organisation), is unused and kept, along with `.env` from before the switch: `backups/env-v0.1.0-pre.8b88971-20261117-164709`.
   - **Layout:** as in the README, rooted at `/var/www/vhosts/akord.nuc03` (`releases/`, `shared/`, `backups/`, `current`). The files are owned by `pat`, not `www-data`. Apache (`www-data`, which is in group `pat`) and `pat` share `shared/storage` and `shared/database` through ACLs: `u:www-data:rwX,u:pat:rwX`, plus the same as default ACLs on the directories. `.env` is 640 with `u:www-data:r`, and the OAuth keys are 660.
-    - Compiled views that `www-data` writes have mask `r-x`. That's harmless: Laravel replaces them by renaming, and `view:cache` as `pat` worked.
+  - **Compiled views must be created by `www-data`.** Blade `touch()`es each compiled file to its source's mtime, and only a file's owner may set its timestamps; group or ACL write is not enough. Files compiled as `pat` (by `php artisan optimize`/`view:cache`, or by a script that renders pages) make Apache fail with `touch(): Utime failed: Operation not permitted` (500) as soon as it recompiles one. On 2026-11-22 the deploy's `optimize` and a post-deploy render check left 671 such files; `php artisan view:clear` as `pat` fixed it. After a deploy or any page-rendering check run as `pat`, finish with `view:clear`, and cache only `config`, `route` and `event` (not `optimize`, which also caches views).
+    - Compiled views that `www-data` writes have mask `r-x`. That's harmless: Laravel replaces them by renaming. (`view:cache` as `pat` only seemed to work earlier: the files it leaves break Apache's next recompile, as above.)
   - **Vhost:** `/etc/apache2/sites-available/akord.nuc03.conf` follows the house style, with the README's `/app/` and `/apps/` Reverb proxy. Plain http (LAN name, no certificate), so `SESSION_SECURE_COOKIE=false`, and passkeys don't work (no secure context).
   - **Name resolution:** dnsmasq on the server answers `*.nuc03`, but the server itself and this PC resolve through `hosts` files. Both have `akord.nuc03` (`127.0.0.1` on the server, because Akord publishes events to its own URL; `192.168.1.205` on the PC).
   - **Mail** goes to Mailpit: SMTP `127.0.0.1:1025`, UI at `http://mailpit.nuc03`, API at `127.0.0.1:8025`.

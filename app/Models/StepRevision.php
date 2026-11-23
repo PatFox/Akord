@@ -12,13 +12,15 @@ use Illuminate\Support\Carbon;
 use LogicException;
 
 /**
- * Append-only snapshot of a step's title and description.
+ * Append-only snapshot of a step's title and description. A revision can propose archiving the step (D16): its
+ * text is the previous revision's, and the step leaves the contract once every required party approves it.
  *
  * @property string $id
  * @property string $step_id
  * @property int $number
  * @property string $title
  * @property string $description_md
+ * @property bool $proposes_archive
  * @property string $content_hash
  * @property string $author_party_id
  * @property string|null $author_user_id
@@ -26,16 +28,23 @@ use LogicException;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['step_id', 'number', 'title', 'description_md', 'author_party_id', 'author_user_id', 'change_note'])]
+#[Fillable(['step_id', 'number', 'title', 'description_md', 'proposes_archive', 'author_party_id', 'author_user_id', 'change_note'])]
 class StepRevision extends Model
 {
     /** @use HasFactory<StepRevisionFactory> */
     use HasFactory, HasRandomId;
 
+    /**
+     * @var array<string, mixed>
+     */
+    protected $attributes = [
+        'proposes_archive' => false,
+    ];
+
     protected static function booted(): void
     {
         static::creating(function (StepRevision $revision): void {
-            $revision->content_hash = static::contentHash($revision->title, $revision->description_md);
+            $revision->content_hash = static::contentHash($revision->title, $revision->description_md, $revision->proposes_archive);
         });
 
         static::updating(fn () => throw new LogicException('Step revisions are append-only.'));
@@ -45,12 +54,16 @@ class StepRevision extends Model
     /**
      * Hash of the title and description that ignores spacing-only differences (D11):
      * trim, normalise line endings, and collapse every whitespace run to one space.
+     * Proposing to archive the step is a change of its own (D16): approvals of the text do not approve it, and
+     * approvals of the proposal do not count for the text. Hashes of other revisions are unchanged, since stored
+     * sign-off fingerprints are built from them.
      */
-    public static function contentHash(string $title, string $descriptionMd): string
+    public static function contentHash(string $title, string $descriptionMd, bool $proposesArchive = false): string
     {
         $normalise = fn (string $text): string => (string) preg_replace('/\s+/u', ' ', trim(str_replace("\r\n", "\n", $text)));
+        $content = [$normalise($title), $normalise($descriptionMd)];
 
-        return hash('sha256', (string) json_encode([$normalise($title), $normalise($descriptionMd)]));
+        return hash('sha256', (string) json_encode($proposesArchive ? [...$content, 'archive'] : $content));
     }
 
     /**
@@ -60,6 +73,7 @@ class StepRevision extends Model
     {
         return [
             'number' => 'integer',
+            'proposes_archive' => 'boolean',
         ];
     }
 

@@ -74,6 +74,7 @@ final class AgentPresenter
                         'id' => $step->id,
                         'position' => $step->position,
                         'revision' => $step->currentRevision?->number,
+                        'archive_proposed' => (bool) $step->currentRevision?->proposes_archive,
                         'approved_by' => $required->filter(fn (Party $p) => ! $outstanding->has($step->id.':'.$p->id))->pluck('id')->values()->all(),
                         'content' => ['title' => $step->currentRevision?->title],
                     ])->all(),
@@ -120,6 +121,8 @@ final class AgentPresenter
             'contract_id' => $contract->id,
             'phase_id' => $step->phase_id,
             'archived' => $step->isArchived(),
+            // D16: the current revision proposes archiving the step; approving it agrees to remove the step.
+            'archive_proposed' => ! $step->isArchived() && $current->proposes_archive,
             'revision' => self::revision($current),
             'approvals' => Party::query()->whereIn('id', $report->requiredPartyIds)->orderBy('name')->get()
                 ->map(fn (Party $p) => ['party_id' => $p->id, 'party' => $p->name, 'approved' => ! in_array($p->id, $outstanding, true)])
@@ -142,6 +145,7 @@ final class AgentPresenter
             'number' => $revision->number,
             'created_at' => $revision->created_at?->toIso8601String(),
             'author' => ['party' => $revision->authorParty->name, 'user' => $revision->authorUser?->name],
+            'proposes_archive' => $revision->proposes_archive,
             ...($previous === null ? [] : ['content_changed' => $previous->content_hash !== $revision->content_hash]),
             'content' => [
                 'title' => $revision->title,

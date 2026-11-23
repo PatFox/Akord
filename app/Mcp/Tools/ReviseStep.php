@@ -12,7 +12,7 @@ use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 
 #[Name('revise_step')]
-#[Description('Save a new revision of a step\'s title and Markdown description. base_revision must be the revision you edited; if someone saved since, you get a 409 and must re-read the step. Content changes cancel approvals.')]
+#[Description('Save a new revision of a step\'s title and Markdown description. base_revision must be the revision you edited; if someone saved since, you get a 409 and must re-read the step. Content changes cancel approvals. On a step whose revision proposes archiving it, any revision (the same text included) withdraws that proposal.')]
 class ReviseStep extends AgentTool
 {
     public function handle(Request $request): Response

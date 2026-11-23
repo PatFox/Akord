@@ -39,7 +39,7 @@ final class ContractAccess
         self::ensureVisible($actor, $contract);
 
         if (! $actor->tokenAllows($ability->tokenAbility())) {
-            throw new AuthorizationException("This token lacks the '{$ability->tokenAbility()}' ability.");
+            throw new AuthorizationException("This agent party lacks the '{$ability->tokenAbility()}' ability.");
         }
 
         $organisationId = $contract->organisationId();

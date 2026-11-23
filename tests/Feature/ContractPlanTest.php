@@ -1,7 +1,6 @@
 <?php
 
 use App\Actions\Phases\CreatePhase;
-use App\Actions\Steps\ArchiveStep;
 use App\Models\User;
 use App\Support\ContractPlan;
 use Livewire\Livewire;
@@ -20,7 +19,7 @@ function plan(Scenario $s): string
 test('the plan numbers phases and steps in order and leaves out archived steps', function () {
     $this->s->step('Endpoints', 'List them.');
     $dropped = $this->s->step('Dropped', 'Gone.');
-    app(ArchiveStep::class)->handle($this->s->alpha, $dropped);
+    $this->s->archive($dropped);
     $build = app(CreatePhase::class)->handle($this->s->alpha, $this->s->contract, 'Build');
     $this->s->step('Webhooks', 'Signed.', $build);
     app(CreatePhase::class)->handle($this->s->alpha, $this->s->contract, 'Later');

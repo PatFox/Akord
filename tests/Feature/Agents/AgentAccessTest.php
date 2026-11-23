@@ -16,9 +16,9 @@ beforeEach(function () {
     $this->agent = $this->s->party(ContractRole::Editor, required: true, agent: true)->party;
 });
 
-function claimCode(Scenario $s, Party $agent, array $abilities = ['comment']): string
+function claimCode(Scenario $s, Party $agent): string
 {
-    return app(CreateAgentClaimCode::class)->handle($s->owner, $agent, $abilities)[1];
+    return app(CreateAgentClaimCode::class)->handle($s->owner, $agent)[1];
 }
 
 function claim(object $t, string $code): TestResponse
@@ -26,8 +26,8 @@ function claim(object $t, string $code): TestResponse
     return $t->postJson('/api/v1/agent/claim', ['code' => $code, 'name' => 'ci-bot']);
 }
 
-test('a claim code gives a working token once, ignoring case and dashes', function () {
-    $code = claimCode($this->s, $this->agent, ['comment']);
+test('a claim code gives a working token with the party’s abilities once, ignoring case and dashes', function () {
+    $code = claimCode($this->s, $this->agent);
 
     $response = claim($this, strtolower(str_replace('-', '', $code)))->assertCreated()
         ->assertJsonPath('data.party.id', $this->agent->id)
@@ -48,7 +48,7 @@ test('expired and unknown claim codes are rejected', function () {
 });
 
 test('a revoked token is refused', function () {
-    $client = new AgentClient($this, $this->agent, $this->agent->createToken('t', ['read'])->plainTextToken);
+    $client = new AgentClient($this, $this->agent, $this->agent->createToken('t')->plainTextToken);
     $client->api('GET', 'contracts')->assertOk();
 
     app(RevokeAgentToken::class)->handle($this->s->owner, $this->agent, $this->agent->tokens()->sole()->id);
@@ -57,23 +57,23 @@ test('a revoked token is refused', function () {
 });
 
 test('only owners create claim codes, and only for agent parties', function () {
-    expect(status(fn () => app(CreateAgentClaimCode::class)->handle($this->s->alpha->user, $this->agent, [])))->toBe(403)
-        ->and(status(fn () => app(CreateAgentClaimCode::class)->handle($this->s->owner, $this->s->alpha->party, [])))->toBe(422);
+    expect(status(fn () => app(CreateAgentClaimCode::class)->handle($this->s->alpha->user, $this->agent)))->toBe(403)
+        ->and(status(fn () => app(CreateAgentClaimCode::class)->handle($this->s->owner, $this->s->alpha->party)))->toBe(422);
 });
 
-test('a token without an ability is refused that action over REST and MCP', function () {
+test('an agent without an ability is refused that action over REST and MCP', function () {
     $step = $this->s->step();
     $readOnly = AgentClient::on($this, $this->s, abilities: ['read', 'comment']);
 
     $readOnly->api('POST', "contracts/{$this->s->contract->id}/steps/{$step->id}/approval", ['revision' => 1])->assertForbidden();
-    expect($readOnly->tool('approve_step', ['contract_id' => $this->s->contract->id, 'step_id' => $step->id, 'revision' => 1]))->toBe([true, "403: This token lacks the 'approve' ability."]);
+    expect($readOnly->tool('approve_step', ['contract_id' => $this->s->contract->id, 'step_id' => $step->id, 'revision' => 1]))->toBe([true, "403: This agent party lacks the 'approve' ability."]);
     $readOnly->api('POST', "contracts/{$this->s->contract->id}/steps/{$step->id}/comments", ['kind' => 'question', 'body_md' => 'Why?'])->assertCreated();
 });
 
 test('agents outside a contract get not-found everywhere, and see none of its activity', function () {
     $step = $this->s->step();
     $other = Party::factory()->for(Organisation::factory())->agent()->create();
-    $outsider = new AgentClient($this, $other, $other->createToken('t', ['read', 'comment', 'edit', 'approve'])->plainTextToken);
+    $outsider = new AgentClient($this, $other, $other->createToken('t')->plainTextToken);
     $id = $this->s->contract->id;
 
     $outsider->api('GET', "contracts/{$id}")->assertNotFound();
@@ -92,11 +92,10 @@ test('a signed-in person cannot use the agent API with their browser session', f
 test('owners generate a code that is shown once, and can revoke tokens, from the agent page', function () {
     $this->actingAs($this->s->owner);
     $page = Livewire::test('pages::organisations.agent', ['organisation' => $this->s->organisation, 'party' => $this->agent])
-        ->set('abilities', ['approve'])->call('generate');
+        ->call('generate');
     $code = $page->get('newCode');
 
-    $token = claim($this, $code)->assertCreated()->json('data');
-    expect($token['abilities'])->toBe(['read', 'approve']);
+    claim($this, $code)->assertCreated();
 
     Livewire::test('pages::organisations.agent', ['organisation' => $this->s->organisation, 'party' => $this->agent])
         ->assertDontSee($code)
@@ -105,27 +104,26 @@ test('owners generate a code that is shown once, and can revoke tokens, from the
     expect($this->agent->tokens()->count())->toBe(0);
 });
 
-test('owners change an existing token’s abilities from the agent page, effective on its next request', function () {
+test('owners set the party’s abilities from the agent page, effective on its tokens’ next request', function () {
     $step = $this->s->step();
-    $client = new AgentClient($this, $this->agent, $this->agent->createToken('ci-bot', ['read'])->plainTextToken);
-    $tokenId = $this->agent->tokens()->sole()->id;
+    $client = new AgentClient($this, $this->agent, $this->agent->createToken('ci-bot')->plainTextToken);
     $revise = fn () => $client->api('PUT', "contracts/{$this->s->contract->id}/steps/{$step->id}", ['base_revision' => 1, 'title' => 'Build the REST API', 'description_md' => 'Endpoints.']);
 
     $revise()->assertForbidden();
 
     $this->actingAs($this->s->owner);
     Livewire::test('pages::organisations.agent', ['organisation' => $this->s->organisation, 'party' => $this->agent])
-        ->call('toggleAbility', 'token', $tokenId, 'edit');
+        ->call('toggleAbility', 'edit');
 
-    expect($this->agent->tokens()->sole()->abilities)->toBe(['read', 'edit']);
+    expect($this->agent->fresh()->agentAbilities())->toBe(['read', 'comment', 'edit']);
     $revise()->assertSuccessful();
 
-    // Non-owners can't change abilities, and another agent's token is not found.
-    $other = $this->s->party(ContractRole::Editor, agent: true)->party;
-    $otherToken = $other->createToken('x', ['read']);
-    expect(status(fn () => app(SetAgentAbilities::class)->handle($this->s->alpha->user, $this->agent, $this->agent->tokens()->sole(), ['edit'])))->toBe(403)
-        ->and(status(fn () => app(SetAgentAbilities::class)->handle($this->s->owner, $this->agent, $otherToken->accessToken, ['edit'])))->toBe(404)
-        ->and($otherToken->accessToken->fresh()->abilities)->toBe(['read']);
+    // Non-owners can't change abilities; people and teams have none; 'read' always stays.
+    expect(status(fn () => app(SetAgentAbilities::class)->handle($this->s->alpha->user, $this->agent, ['approve'])))->toBe(403)
+        ->and(status(fn () => app(SetAgentAbilities::class)->handle($this->s->owner, $this->s->alpha->party, ['approve'])))->toBe(422)
+        ->and($this->agent->fresh()->agentAbilities())->toBe(['read', 'comment', 'edit']);
+    app(SetAgentAbilities::class)->handle($this->s->owner, $this->agent, []);
+    expect($this->agent->fresh()->agentAbilities())->toBe(['read']);
 });
 
 test('only owners open the agent page, and only for agent parties', function () {

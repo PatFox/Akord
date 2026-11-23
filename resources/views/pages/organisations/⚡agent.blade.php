@@ -1,12 +1,14 @@
 <?php
 
 use App\Actions\Organisations\CreateAgentClaimCode;
+use App\Actions\Organisations\CreateAgentConnectionLink;
 use App\Actions\Organisations\RevokeAgentConnection;
 use App\Actions\Organisations\RevokeAgentToken;
 use App\Actions\Organisations\SetAgentAbilities;
 use App\Livewire\Concerns\RunsActions;
 use App\Models\AgentClaimCode;
 use App\Models\AgentConnection;
+use App\Models\AgentConnectionLink;
 use App\Models\Contract;
 use App\Models\Organisation;
 use App\Models\Party;
@@ -24,8 +26,8 @@ new class extends Component {
 
     public Party $party;
 
-    /** @var list<string> */
-    public array $abilities = ['comment', 'approve'];
+    /** The connection link just created; shown once and never stored in plain text. */
+    public ?string $newLink = null;
 
     /** The code just generated; shown once and never stored in plain text. */
     public ?string $newCode = null;
@@ -41,12 +43,34 @@ new class extends Component {
     }
 
     /**
-     * @return Collection<int, PersonalAccessToken>
+     * Turns one of the party's abilities on or off; every connected tool and token gets it on its next request.
+     */
+    public function toggleAbility(string $ability): void
+    {
+        $current = $this->party->agentAbilities();
+        $abilities = in_array($ability, $current, true) ? array_values(array_diff($current, [$ability])) : [...$current, $ability];
+
+        $this->attempt(fn () => app(SetAgentAbilities::class)->handle(Auth::user(), $this->party, $abilities), __('Abilities saved.'));
+        $this->party->refresh();
+    }
+
+    public function createLink(): void
+    {
+        $result = $this->attempt(fn () => app(CreateAgentConnectionLink::class)->handle(Auth::user(), $this->party));
+
+        if ($result !== null) {
+            $this->newLink = $result[1];
+            unset($this->links);
+        }
+    }
+
+    /**
+     * @return Collection<int, AgentConnectionLink>
      */
     #[Computed]
-    public function tokens(): Collection
+    public function links(): Collection
     {
-        return $this->party->tokens()->latest('id')->get();
+        return $this->party->connectionLinks()->latest()->latest('id')->limit(10)->get();
     }
 
     /**
@@ -67,6 +91,16 @@ new class extends Component {
         unset($this->connections);
     }
 
+    public function generate(): void
+    {
+        $result = $this->attempt(fn () => app(CreateAgentClaimCode::class)->handle(Auth::user(), $this->party));
+
+        if ($result !== null) {
+            $this->newCode = $result[1];
+            unset($this->codes);
+        }
+    }
+
     /**
      * @return Collection<int, AgentClaimCode>
      */
@@ -77,22 +111,12 @@ new class extends Component {
     }
 
     /**
-     * @return Collection<int, Contract>
+     * @return Collection<int, PersonalAccessToken>
      */
     #[Computed]
-    public function contracts(): Collection
+    public function tokens(): Collection
     {
-        return Contract::query()->visibleTo($this->party)->orderBy('title')->get();
-    }
-
-    public function generate(): void
-    {
-        $result = $this->attempt(fn () => app(CreateAgentClaimCode::class)->handle(Auth::user(), $this->party, $this->abilities));
-
-        if ($result !== null) {
-            $this->newCode = $result[1];
-            unset($this->codes);
-        }
+        return $this->party->tokens()->latest('id')->get();
     }
 
     public function revoke(int $tokenId): void
@@ -102,31 +126,20 @@ new class extends Component {
     }
 
     /**
-     * Turns one ability on or off for an existing MCP connection or API token.
-     * `$id` is a connection id, or a Sanctum token id (numeric string) for tokens.
+     * The contracts the party is attached to, with its role on each.
+     *
+     * @return Collection<int, Contract>
      */
-    public function toggleAbility(string $kind, string $id, string $ability): void
+    #[Computed]
+    public function contracts(): Collection
     {
-        $credential = $kind === 'connection'
-            ? AgentConnection::query()->where('party_id', $this->party->id)->findOrFail($id)
-            : $this->party->tokens()->whereKey($id)->firstOrFail();
-        $current = array_values(array_map(strval(...), (array) $credential->abilities));
-        $abilities = in_array($ability, $current, true) ? array_values(array_diff($current, [$ability])) : [...$current, $ability];
-
-        $this->attempt(fn () => app(SetAgentAbilities::class)->handle(Auth::user(), $this->party, $credential, $abilities), __('Abilities saved.'));
-        unset($this->connections, $this->tokens);
+        return $this->party->contracts()->orderBy('title')->orderBy('version')->get();
     }
 
     #[Computed]
     public function mcpUrl(): string
     {
         return PartyMcpUrl::for($this->party);
-    }
-
-    #[Computed]
-    public function ompConfig(): string
-    {
-        return (string) json_encode(['mcpServers' => ['akord' => ['type' => 'http', 'url' => $this->mcpUrl]]], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
     }
 
     public function render()
@@ -144,27 +157,61 @@ new class extends Component {
             <flux:breadcrumbs.item>{{ $party->name }}</flux:breadcrumbs.item>
         </flux:breadcrumbs>
         <flux:heading size="xl" level="1">{{ __('Agent access: :name', ['name' => $party->name]) }}</flux:heading>
-        <flux:subheading>{{ __('Connect an AI agent with a one-time claim code. The agent exchanges it for an API token.') }}</flux:subheading>
+        <flux:subheading>{{ __('Set what this agent may do, and connect it from the repository whose agent represents this party.') }}</flux:subheading>
+    </div>
+
+    <div class="space-y-3">
+        <flux:heading size="lg" level="2">{{ __('Abilities') }}</flux:heading>
+        <flux:text size="sm">{{ __('What this agent may do on every contract it is attached to. Its role on each contract (editor, commenter or viewer, set in the contract’s settings) still applies on top. Every connected tool and token gets these, from its next request.') }}</flux:text>
+        <div class="flex flex-wrap gap-4" data-test="party-abilities">
+            <flux:checkbox checked disabled :label="__('Read')" />
+            @foreach (\App\Support\Agents\AgentAbilities::optionalLabels() as $ability => $label)
+                <flux:checkbox
+                    wire:key="ability-{{ $ability }}"
+                    wire:click="toggleAbility('{{ $ability }}')"
+                    :checked="in_array($ability, $party->agentAbilities(), true)"
+                    :label="$label"
+                />
+            @endforeach
+        </div>
     </div>
 
     <div class="space-y-3">
         <flux:heading size="lg" level="2">{{ __('Connect an MCP client (recommended)') }}</flux:heading>
-        <flux:text size="sm">{{ __('This party has its own MCP URL. Put it in the MCP settings of the repo whose agent represents this party; the tool signs in with your Akord account in the browser, and the approval screen is fixed to this party. A sign-in made for this URL cannot act as any other party.') }}</flux:text>
-        <div class="space-y-2 text-sm">
-            <div>{{ __('MCP URL') }}: <code class="select-all font-mono text-xs" data-test="party-mcp-url">{{ $this->mcpUrl }}</code></div>
-            <div>
-                <strong>omp</strong>: {{ __('commit this as') }} <code class="font-mono text-xs">.omp/mcp.json</code> {{ __('in the repo (no secrets in it), then in omp') }} <code class="select-all font-mono text-xs">/mcp reauth akord</code>.
-                {{ __('For the review skill, also install the plugin:') }} <code class="select-all font-mono text-xs">omp plugin marketplace add PatFox/Akord</code>, <code class="select-all font-mono text-xs">omp plugin install akord@akord</code>.
-                <pre class="mt-1 select-all overflow-x-auto rounded bg-zinc-100 px-2 py-1 font-mono text-xs dark:bg-zinc-900" data-test="omp-mcp-json">{{ $this->ompConfig }}</pre>
+        <flux:text size="sm">{{ __('Create a connection link and give it to the agent in the repository that represents this party. The agent fetches the MCP configuration with it and saves it, git-ignored. Then, in omp, run /mcp reload and /mcp reauth akord, and approve in the browser. A sign-in made for this party cannot act as any other party.') }}</flux:text>
+        <flux:button wire:click="createLink" variant="primary" icon="link" data-test="create-link">{{ __('Create connection link') }}</flux:button>
+
+        @if ($newLink)
+            <flux:callout icon="link" color="amber" :heading="__('Give this to the agent now; it will not be shown again')" data-test="new-connection-link">
+                <flux:callout.text>
+                    <code class="block select-all whitespace-pre-wrap rounded bg-white px-2 py-1 font-mono text-xs text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100">{{ __('Connect this repository to Akord: :link', ['link' => $newLink]) }}</code>
+                    <span class="mt-3 block">{{ __('It works once and expires in :hours hours.', ['hours' => config('akord.agents.connection_link_hours')]) }}</span>
+                </flux:callout.text>
+            </flux:callout>
+        @endif
+
+        @if ($this->links->isNotEmpty())
+            <div class="divide-y divide-zinc-100 rounded-lg border border-zinc-200 text-sm dark:divide-zinc-700 dark:border-zinc-700">
+                @foreach ($this->links as $link)
+                    <div class="flex flex-wrap items-center justify-between gap-2 px-3 py-2" wire:key="link-{{ $link->id }}">
+                        <span>{{ __('Link created :date', ['date' => $link->created_at?->diffForHumans()]) }}</span>
+                        <flux:badge size="sm" :color="$link->used_at ? 'green' : ($link->expires_at->isPast() ? 'zinc' : 'sky')">
+                            {{ $link->used_at ? __('Used') : ($link->expires_at->isPast() ? __('Expired') : __('Waiting to be used')) }}
+                        </flux:badge>
+                    </div>
+                @endforeach
             </div>
-            <div>{{ __('Other MCP clients: add the URL above as an HTTP MCP server and sign in when asked.') }}</div>
+        @endif
+
+        <div class="space-y-1 text-sm">
+            <div>{{ __('MCP URL, for setting a client up by hand') }}: <code class="select-all font-mono text-xs" data-test="party-mcp-url">{{ $this->mcpUrl }}</code></div>
+            <div>{{ __('For the review skill in omp, also install the plugin:') }} <code class="select-all font-mono text-xs">omp plugin marketplace add PatFox/Akord</code>, <code class="select-all font-mono text-xs">omp plugin install akord@akord</code>.</div>
         </div>
 
         @if ($this->connections->isNotEmpty())
             <flux:table>
                 <flux:table.columns>
                     <flux:table.column>{{ __('Tool') }}</flux:table.column>
-                    <flux:table.column>{{ __('Abilities') }}</flux:table.column>
                     <flux:table.column>{{ __('Approved by') }}</flux:table.column>
                     <flux:table.column>{{ __('Last used') }}</flux:table.column>
                     <flux:table.column></flux:table.column>
@@ -173,7 +220,6 @@ new class extends Component {
                     @foreach ($this->connections as $connection)
                         <flux:table.row :key="'connection-'.$connection->id">
                             <flux:table.cell class="font-medium">{{ $connection->client?->name ?? __('Unknown tool') }}</flux:table.cell>
-                            <flux:table.cell>@include('partials.agent-abilities', ['kind' => 'connection', 'id' => $connection->id, 'abilities' => $connection->abilities])</flux:table.cell>
                             <flux:table.cell>{{ $connection->approver?->name }}</flux:table.cell>
                             <flux:table.cell>{{ $connection->last_used_at?->diffForHumans() ?? __('Never') }}</flux:table.cell>
                             <flux:table.cell align="end">
@@ -188,18 +234,8 @@ new class extends Component {
 
     <div class="space-y-3">
         <flux:heading size="lg" level="2">{{ __('Or: a one-time claim code') }}</flux:heading>
-        <flux:text size="sm">{{ __('For agents that call the REST API or cannot sign in through a browser.') }}</flux:text>
-        <form wire:submit="generate" class="space-y-3">
-            <flux:text size="sm">{{ __('Abilities for the next code you generate (not saved until you generate it). To change a connected tool or an existing token, use the checkboxes in its row.') }}</flux:text>
-            <div class="flex flex-wrap gap-4">
-                <flux:checkbox checked disabled :label="__('Read')" />
-                @foreach (\App\Support\Agents\AgentAbilities::optionalLabels() as $ability => $label)
-                    <flux:checkbox wire:model="abilities" :value="$ability" :label="$label" wire:key="new-code-{{ $ability }}" />
-                @endforeach
-            </div>
-            <flux:text size="sm">{{ __('The token can only do what the agent party’s role on each contract also allows.') }}</flux:text>
-            <flux:button type="submit" variant="primary" icon="key">{{ __('Generate claim code') }}</flux:button>
-        </form>
+        <flux:text size="sm">{{ __('For agents that call the REST API or cannot sign in through a browser. The agent exchanges the code for an API token with this party’s abilities.') }}</flux:text>
+        <flux:button wire:click="generate" variant="primary" icon="key">{{ __('Generate claim code') }}</flux:button>
 
         @if ($newCode)
             <flux:callout icon="key" color="amber" :heading="__('Copy this code now; it will not be shown again')" data-test="new-claim-code">
@@ -207,7 +243,7 @@ new class extends Component {
                     <code class="block select-all rounded bg-white px-2 py-1 font-mono text-base text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100">{{ $newCode }}</code>
                     <span class="mt-3 block">{{ __('It works once and expires in :hours hours. The agent claims a token with:', ['hours' => config('akord.agents.claim_code_hours')]) }}</span>
                     <code class="mt-1 block select-all whitespace-pre-wrap rounded bg-white px-2 py-1 font-mono text-xs text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100">curl -X POST {{ url('/api/v1/agent/claim') }} -H "Accept: application/json" -H "Content-Type: application/json" -d '{"code":"{{ $newCode }}","name":"my-agent"}'</code>
-                    <span class="mt-3 block">{{ __('Then use the token as a Bearer token for the REST API at :api or the MCP server at :mcp.', ['api' => url('/api/v1'), 'mcp' => url('/mcp')]) }}</span>
+                    <span class="mt-3 block">{{ __('Then use the token as a Bearer token for the REST API at :api or the MCP server at :mcp.', ['api' => url('/api/v1'), 'mcp' => $this->mcpUrl]) }}</span>
                 </flux:callout.text>
             </flux:callout>
         @endif
@@ -216,7 +252,7 @@ new class extends Component {
             <div class="divide-y divide-zinc-100 rounded-lg border border-zinc-200 text-sm dark:divide-zinc-700 dark:border-zinc-700">
                 @foreach ($this->codes as $code)
                     <div class="flex flex-wrap items-center justify-between gap-2 px-3 py-2" wire:key="code-{{ $code->id }}">
-                        <span>{{ __('Created :date', ['date' => $code->created_at?->diffForHumans()]) }} · {{ implode(', ', $code->abilities ?? ['read']) }}</span>
+                        <span>{{ __('Created :date', ['date' => $code->created_at?->diffForHumans()]) }}</span>
                         <flux:badge size="sm" :color="$code->claimed_at ? 'green' : ($code->expires_at->isPast() ? 'zinc' : 'sky')">
                             {{ $code->claimed_at ? __('Claimed') : ($code->expires_at->isPast() ? __('Expired') : __('Waiting to be claimed')) }}
                         </flux:badge>
@@ -234,7 +270,6 @@ new class extends Component {
             <flux:table>
                 <flux:table.columns>
                     <flux:table.column>{{ __('Name') }}</flux:table.column>
-                    <flux:table.column>{{ __('Abilities') }}</flux:table.column>
                     <flux:table.column>{{ __('Last used') }}</flux:table.column>
                     <flux:table.column>{{ __('Created') }}</flux:table.column>
                     <flux:table.column></flux:table.column>
@@ -243,7 +278,6 @@ new class extends Component {
                     @foreach ($this->tokens as $token)
                         <flux:table.row :key="'token-'.$token->id">
                             <flux:table.cell class="font-medium">{{ $token->name }}</flux:table.cell>
-                            <flux:table.cell>@include('partials.agent-abilities', ['kind' => 'token', 'id' => $token->id, 'abilities' => $token->abilities])</flux:table.cell>
                             <flux:table.cell>{{ $token->last_used_at?->diffForHumans() ?? __('Never') }}</flux:table.cell>
                             <flux:table.cell>{{ $token->created_at?->toFormattedDayDateString() }}</flux:table.cell>
                             <flux:table.cell align="end">
@@ -259,7 +293,10 @@ new class extends Component {
     <div class="space-y-3">
         <flux:heading size="lg" level="2">{{ __('Contracts') }}</flux:heading>
         @forelse ($this->contracts as $contract)
-            <div><flux:link :href="route('contracts.show', $contract)" wire:navigate>{{ $contract->title }} v{{ $contract->version }}</flux:link></div>
+            <div class="flex items-center gap-2" wire:key="contract-{{ $contract->id }}">
+                <flux:link :href="route('contracts.show', $contract)" wire:navigate>{{ $contract->title }} v{{ $contract->version }}</flux:link>
+                <flux:badge size="sm" data-test="contract-role">{{ $contract->pivot->role->label() }}</flux:badge>
+            </div>
         @empty
             <flux:text size="sm">{{ __('Not attached to any contract yet. Attach it from a contract’s settings.') }}</flux:text>
         @endforelse

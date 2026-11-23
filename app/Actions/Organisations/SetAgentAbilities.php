@@ -2,31 +2,29 @@
 
 namespace App\Actions\Organisations;
 
-use App\Models\AgentConnection;
+use App\Exceptions\InvalidActionException;
 use App\Models\Party;
 use App\Models\User;
 use App\Support\Agents\AgentAbilities;
 use App\Support\OrganisationAccess;
-use Laravel\Sanctum\PersonalAccessToken;
 
 /**
- * Owner-only: changes what one of an agent's credentials may do, an MCP connection (OAuth)
- * or an API token (claim code). Takes effect on the agent's next request; 'read' is always kept.
+ * Owner-only: sets what an agent party may do, on top of its role on each contract. Applies to
+ * every credential of the party (MCP sign-ins and claim-code tokens) from its next request; 'read' is always kept.
  */
 final class SetAgentAbilities
 {
     /**
-     * @param  list<string>  $abilities
+     * @param  array<int, mixed>  $abilities
      */
-    public function handle(User $owner, Party $agent, AgentConnection|PersonalAccessToken $credential, array $abilities): void
+    public function handle(User $owner, Party $agent, array $abilities): void
     {
         OrganisationAccess::ensureOwner($owner, $agent->organisation_id);
 
-        $belongs = $credential instanceof AgentConnection
-            ? $credential->party_id === $agent->id && $credential->revoked_at === null
-            : $credential->getAttribute('tokenable_type') === $agent->getMorphClass() && $credential->getAttribute('tokenable_id') === $agent->id;
-        abort_unless($belongs, 404);
+        if (! $agent->isAgent()) {
+            throw new InvalidActionException('Only agent parties have abilities; people act through their role on each contract.');
+        }
 
-        $credential->forceFill(['abilities' => AgentAbilities::normalise($abilities)])->save();
+        $agent->forceFill(['agent_abilities' => AgentAbilities::normalise($abilities)])->save();
     }
 }

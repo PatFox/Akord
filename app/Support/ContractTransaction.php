@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Actions\Contracts\ContractReadiness;
+use App\Actions\Steps\ArchiveStep;
 use App\Enums\ContractAbility;
 use App\Exceptions\ContractLockedException;
 use App\Models\Contract;
@@ -16,7 +17,8 @@ use Illuminate\Support\Facades\DB;
  *    MySQL REPEATABLE READ every later plain read sees everything committed before the
  *    lock. Callers must therefore re-read related rows inside $work.
  * 2. Visibility (404), the actor's ability (403), then the lock guard (423): agreed or not open.
- * 3. Run $work, then record readiness transitions and sequence activity after commit.
+ * 3. Run $work, archive the steps whose archive proposal is now approved (D16), then record readiness transitions
+ *    and sequence activity after commit.
  */
 final class ContractTransaction
 {
@@ -46,6 +48,10 @@ final class ContractTransaction
             $before = $locked->isAgreed() ? null : ContractReadiness::report($locked);
 
             $result = $work($locked, $log);
+
+            if (! $locked->isLocked()) {
+                ArchiveStep::settle($locked, $log);
+            }
 
             if ($before !== null && ! $locked->isAgreed()) {
                 $log->readinessChanged($before, ContractReadiness::report($locked));

@@ -2,7 +2,6 @@
 
 use App\Actions\Contracts\SetRequiredApprover;
 use App\Actions\Contracts\SignOffContract;
-use App\Actions\Steps\ArchiveStep;
 use App\Enums\ContractState;
 use Tests\Support\Scenario;
 
@@ -38,7 +37,7 @@ test('a missing approval leaves the contract in draft and lists what is outstand
 test('a contract without active steps is draft', function () {
     $step = $this->s->step();
     $this->s->approveAll($step);
-    app(ArchiveStep::class)->handle($this->s->alpha, $step);
+    $this->s->archive($step);
 
     expect($this->s->readiness()->state)->toBe(ContractState::Draft)
         ->and(status(fn () => app(SignOffContract::class)->handle($this->s->alpha, $this->s->contract, $this->s->readiness()->fingerprint)))->toBe(422);

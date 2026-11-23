@@ -37,7 +37,7 @@ function applyChange(string $change, object $t): void
         'content edit' => app(ReviseStep::class)->handle($s->alpha, $t->one, 1, 'One', 'First step, extended.'),
         'spacing-only edit' => app(ReviseStep::class)->handle($s->alpha, $t->one, 1, ' One ', "First\n\nstep."),
         'step added' => $s->step('Four'),
-        'step archived' => app(ArchiveStep::class)->handle($s->alpha, $t->two),
+        'archive proposed' => app(ArchiveStep::class)->handle($s->alpha, $t->two),
         'required party added' => app(SetRequiredApprover::class)->handle($owner, $s->contract, $s->party(ContractRole::Commenter)->party, true),
         'required party removed' => app(SetRequiredApprover::class)->handle($owner, $s->contract, $s->beta->party, false),
         'steps reordered' => app(ReorderSteps::class)->handle($s->alpha, $s->phase, [$t->two->id, $t->one->id]),
@@ -53,7 +53,7 @@ test('changes that alter the agreed content cancel sign-offs', function (string 
 
     expect($this->s->readiness()->signedOffPartyIds)->toBe([])
         ->and($this->s->activityCount('signoffs.invalidated'))->toBe(1);
-})->with(['content edit', 'step added', 'step archived', 'required party added', 'required party removed']);
+})->with(['content edit', 'step added', 'archive proposed', 'required party added', 'required party removed']);
 
 test('changes that leave the agreed content alone keep sign-offs', function (string $change) {
     applyChange($change, $this);

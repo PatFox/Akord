@@ -37,7 +37,7 @@ beforeEach(function () {
     $this->one = $this->s->step('One', 'First step.');
     $this->two = $this->s->step('Two', 'Second step.');
     $this->archived = $this->s->step('Dropped', 'Archived before agreement.');
-    app(ArchiveStep::class)->handle($this->s->alpha, $this->archived);
+    $this->s->archive($this->archived);
     $this->comment = app(AddComment::class)->handle($this->s->beta, $this->one, CommentKind::Question, 'Scope?');
     $this->spare = $this->s->party(null);
     $this->s->approveAll($this->one, $this->two);

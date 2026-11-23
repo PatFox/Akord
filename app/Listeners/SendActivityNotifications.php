@@ -35,7 +35,7 @@ class SendActivityNotifications implements ShouldQueue
         $payload = $activity->payload ?? [];
 
         $recipients = match ($activity->type) {
-            'comment.added', 'contract.agreed' => $this->members($contract),
+            'comment.added', 'contract.agreed', 'step.archive_proposed' => $this->members($contract),
             'step.revised' => ($payload['content_changed'] ?? true) ? $this->members($contract) : null,
             'contract.ready' => $this->members($contract, $this->ids($contract->requiredApprovers()->pluck('parties.id')->all())),
             'signoffs.invalidated' => $this->members($contract, $this->ids($payload['party_ids'] ?? [])),
@@ -49,7 +49,7 @@ class SendActivityNotifications implements ShouldQueue
 
         $recipients = $recipients->reject(fn (User $user): bool => $user->id === $activity->actor_user_id);
 
-        if ($activity->type === 'step.revised') {
+        if (in_array($activity->type, ['step.revised', 'step.archive_proposed'], true)) {
             $this->sendRevision($activity, $contract, $recipients, $this->ids($payload['cancelled_party_ids'] ?? []));
 
             return;
@@ -59,7 +59,7 @@ class SendActivityNotifications implements ShouldQueue
     }
 
     /**
-     * Everyone is told about the edit; members of parties whose approval it cancelled are also told that.
+     * Everyone is told about the edit or archive proposal; members of parties whose approval it cancelled are also told that.
      *
      * @param  Collection<int, User>  $recipients
      * @param  list<string>  $cancelledPartyIds

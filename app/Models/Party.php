@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\PartyType;
 use App\Models\Concerns\HasRandomId;
+use App\Support\Agents\AgentAbilities;
 use Database\Factories\PartyFactory;
 use Illuminate\Auth\Authenticatable;
 use Illuminate\Contracts\Auth\Authenticatable as AuthenticatableContract;
@@ -21,10 +22,11 @@ use Laravel\Sanctum\HasApiTokens;
  * @property string $organisation_id
  * @property string $name
  * @property PartyType $type
+ * @property list<string>|null $agent_abilities what an agent party may do (AgentAbilities); null for people and teams
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['organisation_id', 'name', 'type'])]
+#[Fillable(['organisation_id', 'name', 'type', 'agent_abilities'])]
 class Party extends Model implements AuthenticatableContract
 {
     // Agent parties authenticate to the API and MCP server with Sanctum tokens
@@ -41,12 +43,24 @@ class Party extends Model implements AuthenticatableContract
     {
         return [
             'type' => PartyType::class,
+            'agent_abilities' => 'array',
         ];
     }
 
     public function isAgent(): bool
     {
         return $this->type === PartyType::Agent;
+    }
+
+    /**
+     * What this agent party may do, on top of its role on each contract. Every credential of the
+     * party (MCP sign-in or claim-code token) gets these; owners set them on the Agent access page.
+     *
+     * @return list<string>
+     */
+    public function agentAbilities(): array
+    {
+        return AgentAbilities::normalise($this->agent_abilities ?? []);
     }
 
     /**
@@ -84,5 +98,13 @@ class Party extends Model implements AuthenticatableContract
     public function claimCodes(): HasMany
     {
         return $this->hasMany(AgentClaimCode::class);
+    }
+
+    /**
+     * @return HasMany<AgentConnectionLink, $this>
+     */
+    public function connectionLinks(): HasMany
+    {
+        return $this->hasMany(AgentConnectionLink::class);
     }
 }

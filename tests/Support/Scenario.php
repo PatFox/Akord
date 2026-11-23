@@ -4,6 +4,7 @@ namespace Tests\Support;
 
 use App\Actions\Approvals\ApproveStep;
 use App\Actions\Contracts\ContractReadiness;
+use App\Actions\Steps\ArchiveStep;
 use App\Actions\Steps\CreateStep;
 use App\Enums\ContractRole;
 use App\Enums\OrganisationRole;
@@ -107,6 +108,15 @@ final class Scenario
             $this->approve($this->alpha, $step);
             $this->approve($this->beta, $step);
         }
+    }
+
+    /**
+     * Archives a step the way people do (D16): alpha proposes it, then every required party approves the proposal.
+     */
+    public function archive(Step $step): void
+    {
+        app(ArchiveStep::class)->handle($this->alpha, $step);
+        $this->approveAll($step);
     }
 
     public function readiness(): ReadinessReport

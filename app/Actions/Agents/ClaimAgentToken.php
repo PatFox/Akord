@@ -9,7 +9,8 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Exchanges a claim code for a Sanctum token for the agent party. Each code works once
+ * Exchanges a claim code for a Sanctum token for the agent party. The token has no abilities
+ * of its own: requests get the party's (AgentActor). Each code works once
  * (the row is locked, so two simultaneous claims cannot both succeed) and expires.
  *
  * Errors: unknown code 404; used or expired 410.
@@ -37,11 +38,10 @@ final class ClaimAgentToken
             }
 
             $party = Party::query()->findOrFail($claimCode->party_id);
-            $abilities = $claimCode->abilities ?? ['read'];
-            $token = $party->createToken($tokenName, $abilities);
+            $token = $party->createToken($tokenName);
             $claimCode->update(['claimed_at' => now()]);
 
-            return ['party' => $party, 'token' => $token->plainTextToken, 'abilities' => $abilities];
+            return ['party' => $party, 'token' => $token->plainTextToken, 'abilities' => $party->agentAbilities()];
         });
     }
 }

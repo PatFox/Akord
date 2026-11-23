@@ -29,12 +29,19 @@ final class ActivityDescription
             'phase.renamed' => __(':actor renamed a phase to :subject', compact('actor', 'subject')),
             'phases.reordered' => __(':actor reordered the phases', compact('actor')),
             'step.created' => __(':actor added step :subject', compact('actor', 'subject')),
-            'step.revised' => ($payload['content_changed'] ?? true)
-                ? __(':actor edited :subject', compact('actor', 'subject'))
-                : __(':actor changed spacing in :subject', compact('actor', 'subject')),
+            'step.revised' => match (true) {
+                ($payload['archive_withdrawn'] ?? false) => ($payload['text_changed'] ?? true)
+                    ? __(':actor edited :subject, withdrawing the proposal to archive it', compact('actor', 'subject'))
+                    : __(':actor kept :subject, withdrawing the proposal to archive it', compact('actor', 'subject')),
+                ($payload['content_changed'] ?? true) => __(':actor edited :subject', compact('actor', 'subject')),
+                default => __(':actor changed spacing in :subject', compact('actor', 'subject')),
+            },
             'step.moved' => __(':actor moved :subject', compact('actor', 'subject')),
             'steps.reordered' => __(':actor reordered steps in :subject', compact('actor', 'subject')),
-            'step.archived' => __(':actor archived :subject', compact('actor', 'subject')),
+            'step.archive_proposed' => __(':actor proposed archiving :subject', compact('actor', 'subject')),
+            'step.archived' => isset($payload['approved_revision'])
+                ? __(':subject was archived: every required party approved', compact('subject'))
+                : __(':actor archived :subject', compact('actor', 'subject')),
             'comment.added' => __(':actor commented on :subject', compact('actor', 'subject')),
             'comment.resolved' => __(':actor resolved a comment on :subject', compact('actor', 'subject')),
             'approval.created' => __(':actor approved :subject', compact('actor', 'subject')),

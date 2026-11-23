@@ -54,13 +54,12 @@ function approveAs(object $t, User $user, string $clientId, array $choice, ?stri
 /**
  * The full flow: returns an access and refresh token for the client.
  *
- * @param  list<string>  $abilities
  * @return array{access_token: string, refresh_token: string, client_id: string}
  */
-function connect(object $t, ?Party $party = null, array $abilities = ['comment', 'approve'], ?string $clientId = null, ?string $resource = null): array
+function connect(object $t, ?Party $party = null, ?string $clientId = null, ?string $resource = null): array
 {
     $clientId ??= registerClient($t);
-    [$approved, $verifier] = approveAs($t, $t->s->owner, $clientId, ['party_id' => ($party ?? $t->agent)->id, 'abilities' => $abilities], $resource);
+    [$approved, $verifier] = approveAs($t, $t->s->owner, $clientId, ['party_id' => ($party ?? $t->agent)->id], $resource);
     parse_str((string) parse_url((string) $approved->assertRedirect()->headers->get('Location'), PHP_URL_QUERY), $query);
 
     app('auth')->forgetGuards();
@@ -108,7 +107,7 @@ test('a local client may come back on another loopback port, but not on another 
 
     // omp reusing its client with oauth.callbackPort changed: the whole flow works on the new port.
     $authorize('http://localhost:3334/callback')->assertOk()->assertSee('Connect omp to Akord');
-    $approved = $this->post(route('agents.connect.approve'), ['auth_token' => session('authToken'), 'party_id' => $this->agent->id, 'abilities' => ['comment']]);
+    $approved = $this->post(route('agents.connect.approve'), ['auth_token' => session('authToken'), 'party_id' => $this->agent->id]);
     parse_str((string) parse_url((string) $approved->assertRedirect()->headers->get('Location'), PHP_URL_QUERY), $query);
     expect((string) $approved->headers->get('Location'))->toStartWith('http://localhost:3334/callback?');
     app('auth')->forgetGuards();
@@ -135,8 +134,8 @@ test('a local client may come back on another loopback port, but not on another 
         ->and(end($uris))->toBe('http://localhost:4011/callback');
 });
 
-test('an owner connects a client as an agent party, which then acts as that party with the chosen abilities', function () {
-    $tokens = connect($this, abilities: ['comment']);
+test('an owner connects a client as an agent party, which then acts as that party with the party’s abilities', function () {
+    $tokens = connect($this);
 
     bearer($this, $tokens['access_token'], 'GET', '/api/v1/agent')->assertOk()
         ->assertJsonPath('data.party.id', $this->agent->id)
@@ -212,8 +211,8 @@ test('refreshed tokens keep acting as the agent party', function () {
     bearer($this, $refreshed, 'GET', '/api/v1/agent')->assertOk()->assertJsonPath('data.party.id', $this->agent->id);
 });
 
-test('owners change a connected tool’s abilities from the agent page without signing in again', function () {
-    $tokens = connect($this, abilities: ['comment']);
+test('the party’s abilities, set on the agent page, apply to a connected tool without signing in again', function () {
+    $tokens = connect($this);
     $step = $this->s->step();
     $approve = fn () => bearer($this, $tokens['access_token'], 'POST', "/api/v1/contracts/{$this->s->contract->id}/steps/{$step->id}/approval", ['revision' => 1]);
 
@@ -221,9 +220,9 @@ test('owners change a connected tool’s abilities from the agent page without s
 
     $this->actingAs($this->s->owner);
     Livewire::test('pages::organisations.agent', ['organisation' => $this->s->organisation, 'party' => $this->agent])
-        ->call('toggleAbility', 'connection', AgentConnection::query()->sole()->id, 'approve');
+        ->call('toggleAbility', 'approve');
 
-    expect(AgentConnection::query()->sole()->abilities)->toBe(['read', 'comment', 'approve']);
+    expect($this->agent->fresh()->agentAbilities())->toBe(['read', 'comment', 'approve']);
     $approve()->assertSuccessful();
 });
 

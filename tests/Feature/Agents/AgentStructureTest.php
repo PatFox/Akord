@@ -59,7 +59,10 @@ test('an editor agent adds a phase and steps, moves and archives them over REST'
     $this->agent->api('POST', "contracts/{$this->id}/steps/{$this->step->id}/move", ['phase_id' => $phase, 'after_step_id' => $monitor])->assertOk()
         ->assertJsonPath('data.phase_id', $phase)->assertJsonPath('data.position', 2);
     $this->agent->api('POST', "contracts/{$this->id}/steps/{$monitor}/move", [])->assertOk()->assertJsonPath('data.position', 3);
-    $this->agent->api('POST', "contracts/{$this->id}/steps/{$deploy}/archive")->assertOk()->assertJsonPath('data.archived', true);
+    // With required approvers, archiving is a proposal (D16); the step goes once they approve it.
+    $this->agent->api('POST', "contracts/{$this->id}/steps/{$deploy}/archive")->assertOk()
+        ->assertJsonPath('data.archived', false)->assertJsonPath('data.archive_proposed', true)->assertJsonPath('data.revision', 2);
+    $this->s->approveAll(Step::query()->findOrFail($deploy));
 
     expect(titlesIn($phase))->toBe(['Build the API', 'Monitor'])
         ->and(titlesIn($this->s->phase->id))->toBe([])
@@ -76,9 +79,14 @@ test('the same operations work as MCP tools', function () {
     $deploy = toolData($text)['id'];
     expect($error)->toBeFalse();
 
-    expect($this->agent->tool('move_step', ['contract_id' => $this->id, 'step_id' => $this->step->id, 'phase_id' => $phase, 'after_step_id' => 'start'])[0])->toBeFalse()
-        ->and($this->agent->tool('archive_step', ['contract_id' => $this->id, 'step_id' => $deploy])[0])->toBeFalse()
-        ->and(titlesIn($phase))->toBe(['Build the API']);
+    expect($this->agent->tool('move_step', ['contract_id' => $this->id, 'step_id' => $this->step->id, 'phase_id' => $phase, 'after_step_id' => 'start'])[0])->toBeFalse();
+
+    [$error, $text] = $this->agent->tool('archive_step', ['contract_id' => $this->id, 'step_id' => $deploy]);
+    expect($error)->toBeFalse()->and(toolData($text)['archive_proposed'])->toBeTrue()
+        ->and(titlesIn($phase))->toBe(['Build the API', 'Deploy']);
+
+    $this->s->approveAll(Step::query()->findOrFail($deploy));
+    expect(titlesIn($phase))->toBe(['Build the API']);
 });
 
 test('structure changes are refused by role, token ability, scope and the lock', function () {
@@ -122,12 +130,13 @@ test('adding a step cancels sign-offs; moving one keeps approvals and sign-offs'
         ->and($this->s->activityCount('signoffs.invalidated'))->toBe(1);
 });
 
-test('archiving the last unapproved step makes the contract ready for sign-off', function () {
+test('archiving the last unapproved step makes the contract ready once the required parties approve it', function () {
     $pending = $this->s->step('Not needed');
     $this->s->approveAll($this->step);
-    expect($this->s->readiness()->isReady())->toBeFalse();
 
     $this->agent->api('POST', "contracts/{$this->id}/steps/{$pending->id}/archive")->assertOk();
+    expect($this->s->readiness()->isReady())->toBeFalse();
 
+    $this->s->approveAll($pending);
     expect($this->s->readiness()->isReady())->toBeTrue();
 });

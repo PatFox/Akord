@@ -17,14 +17,13 @@ use Illuminate\Support\Carbon;
  * @property string $id
  * @property string $party_id
  * @property string $code_hash
- * @property list<string>|null $abilities
  * @property string|null $created_by
  * @property Carbon $expires_at
  * @property Carbon|null $claimed_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['party_id', 'code_hash', 'abilities', 'created_by', 'expires_at', 'claimed_at'])]
+#[Fillable(['party_id', 'code_hash', 'created_by', 'expires_at', 'claimed_at'])]
 #[Hidden(['code_hash'])]
 class AgentClaimCode extends Model
 {
@@ -37,7 +36,6 @@ class AgentClaimCode extends Model
     protected function casts(): array
     {
         return [
-            'abilities' => 'array',
             'expires_at' => 'datetime',
             'claimed_at' => 'datetime',
         ];

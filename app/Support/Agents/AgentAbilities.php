@@ -3,11 +3,14 @@
 namespace App\Support\Agents;
 
 /**
- * Token abilities an owner can grant an agent. 'read' is always granted.
+ * Abilities an owner grants an agent party, on top of its role on each contract. 'read' is always granted.
  */
 final class AgentAbilities
 {
     public const ALL = ['read', 'comment', 'edit', 'approve', 'create'];
+
+    /** A new agent party's abilities. */
+    public const DEFAULT = ['read', 'comment'];
 
     /**
      * @param  array<int, mixed>  $requested
@@ -19,7 +22,7 @@ final class AgentAbilities
     }
 
     /**
-     * The optional abilities with their labels, for every screen that grants them.
+     * The optional abilities with their labels, for the Agent access page.
      *
      * @return array<string, string>
      */

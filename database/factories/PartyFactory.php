@@ -5,6 +5,7 @@ namespace Database\Factories;
 use App\Enums\PartyType;
 use App\Models\Organisation;
 use App\Models\Party;
+use App\Support\Agents\AgentAbilities;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -39,6 +40,7 @@ class PartyFactory extends Factory
         return $this->state(fn (array $attributes) => [
             'name' => fake()->word().' agent',
             'type' => PartyType::Agent,
+            'agent_abilities' => AgentAbilities::DEFAULT,
         ]);
     }
 }

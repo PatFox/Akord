@@ -17,15 +17,16 @@ final class AgentClient
     public function __construct(private TestCase $test, public Party $party, public string $token) {}
 
     /**
-     * An agent party attached to the scenario's contract, with a real token.
+     * An agent party attached to the scenario's contract, with the given abilities and a real token.
      *
      * @param  list<string>  $abilities
      */
     public static function on(TestCase $test, Scenario $s, ContractRole $role = ContractRole::Editor, bool $required = true, array $abilities = ['read', 'comment', 'edit', 'approve']): self
     {
         $party = $s->party($role, required: $required, agent: true)->party;
+        $party->update(['agent_abilities' => $abilities]);
 
-        return new self($test, $party, $party->createToken('test', $abilities)->plainTextToken);
+        return new self($test, $party, $party->createToken('test')->plainTextToken);
     }
 
     /**

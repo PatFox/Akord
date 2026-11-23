@@ -1,7 +1,10 @@
 <?php
 
+use App\Actions\Comments\AddComment;
 use App\Actions\Contracts\SignOffContract;
 use App\Actions\Phases\CreatePhase;
+use App\Actions\Steps\ReviseStep;
+use App\Enums\CommentKind;
 use App\Enums\ContractRole;
 use App\Enums\ContractState;
 use App\Enums\ContractStatus;
@@ -9,6 +12,7 @@ use App\Models\Contract;
 use App\Models\ContractParty;
 use App\Models\ContractSignoff;
 use App\Models\Party;
+use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 use Tests\Support\Scenario;
 
@@ -82,6 +86,39 @@ test('each phase shows how many steps are approved, overall and per required par
 
     expect($counts['byParty'])->toEqual([$this->s->alpha->party->id => 2, $this->s->beta->party->id => 1])
         ->and($counts['approved'])->toBe(1);
+});
+
+test('the steps panel loads in the same number of queries however many steps it lists', function () {
+    // Each round: a step both parties approved, one alpha approved before an edit cancelled it, and one with a comment.
+    $addSteps = function (): void {
+        $this->s->approveAll($this->s->step('Approved'));
+        $edited = $this->s->step('Edited');
+        $this->s->approve($this->s->alpha, $edited);
+        app(ReviseStep::class)->handle($this->s->alpha, $edited, 1, 'Edited', 'Changed after approval.');
+        app(AddComment::class)->handle($this->s->beta, $this->s->step('Commented'), CommentKind::Question, 'Why?');
+    };
+    $load = function () {
+        $this->actingAs($this->s->alpha->user);
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $response = $this->get(route('contracts.show', $this->s->contract))->assertOk();
+        // The first request creates the session row; later ones update it.
+        $queries = collect(DB::getQueryLog())->reject(fn (array $query) => str_contains($query['query'], '"sessions"'))->count();
+        DB::disableQueryLog();
+
+        return [$response, $queries];
+    };
+
+    $addSteps();
+    [, $fewSteps] = $load();
+    $addSteps();
+    $addSteps();
+    [$response, $moreSteps] = $load();
+
+    expect($moreSteps)->toBe($fewSteps)
+        ->and(substr_count($response->getContent(), 'data-test="step"'))->toBe(9)
+        ->and(substr_count($response->getContent(), 'The step changed after your party approved it.'))->toBe(3)
+        ->and(substr_count($response->getContent(), 'title="1 comment"'))->toBe(3);
 });
 
 test('the step filter keeps steps missing any required approval, or the acting party\'s; dragging is off while filtering', function () {

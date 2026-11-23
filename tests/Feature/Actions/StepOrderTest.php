@@ -1,7 +1,6 @@
 <?php
 
 use App\Actions\Phases\CreatePhase;
-use App\Actions\Steps\ArchiveStep;
 use App\Actions\Steps\CreateStep;
 use App\Actions\Steps\MoveStep;
 use App\Models\Phase;
@@ -58,7 +57,7 @@ test('moving within and across phases keeps both phases numbered without gaps', 
 test('an anchor that is the step itself, archived, or in another phase is refused and changes nothing', function () {
     $second = app(CreatePhase::class)->handle($this->s->alpha, $this->s->contract, 'Second');
     $elsewhere = createAfter($this->s, $second, 'X', null);
-    app(ArchiveStep::class)->handle($this->s->alpha, $this->c);
+    $this->s->archive($this->c);
 
     expect(status(fn () => createAfter($this->s, $this->s->phase, 'D', $this->c->id)))->toBe(422)
         ->and(status(fn () => createAfter($this->s, $this->s->phase, 'D', $elsewhere->id)))->toBe(422)

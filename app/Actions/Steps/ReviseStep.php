@@ -15,7 +15,7 @@ use App\Support\ContractAccess;
 use App\Support\ContractTransaction;
 
 /**
- * Records a new revision of a step's title and description. A content change cancels its approvals and the contract's sign-offs; a spacing-only change does not (D11). Identical text is a no-op.
+ * Records a new revision of a step's title and description. A content change cancels its approvals and the contract's sign-offs; a spacing-only change does not (D11). Identical text is a no-op, except on a revision proposing to archive the step: any new revision, the same text included, withdraws that proposal (D16), and approvals of the text from before it count again.
  */
 final class ReviseStep
 {
@@ -38,7 +38,7 @@ final class ReviseStep
                 throw new StaleRevisionException("This step is now at revision {$current->number}; you edited revision {$baseRevisionNumber}. Review the latest revision and try again.");
             }
 
-            if ($current->title === $title && $current->description_md === $descriptionMd) {
+            if ($current->title === $title && $current->description_md === $descriptionMd && ! $current->proposes_archive) {
                 return $current;
             }
 
@@ -60,15 +60,10 @@ final class ReviseStep
                 'revision' => $revision->number,
                 'previous_revision' => $current->number,
                 'content_changed' => $contentChanged,
+                'archive_withdrawn' => $current->proposes_archive,
+                ...($current->proposes_archive ? ['text_changed' => $revision->content_hash !== StepRevision::contentHash($current->title, $current->description_md)] : []),
                 // Parties whose approval counted until this edit (notifications tell them).
-                'cancelled_party_ids' => $contentChanged
-                    ? Approval::query()->active()
-                        ->where('step_id', $step->id)
-                        ->whereRelation('revision', 'content_hash', $current->content_hash)
-                        ->orderBy('party_id')
-                        ->pluck('party_id')
-                        ->unique()->values()->all()
-                    : [],
+                'cancelled_party_ids' => $contentChanged ? Approval::partyIdsApproving($current) : [],
             ]);
 
             return $revision;

@@ -7,6 +7,7 @@ use App\Exceptions\InvalidActionException;
 use App\Models\Organisation;
 use App\Models\Party;
 use App\Models\User;
+use App\Support\Agents\AgentAbilities;
 use App\Support\OrganisationAccess;
 use Illuminate\Support\Facades\DB;
 
@@ -24,7 +25,12 @@ final class CreateParty
         }
 
         return DB::transaction(function () use ($user, $organisation, $name, $type, $joinAsMember): Party {
-            $party = Party::query()->create(['organisation_id' => $organisation->id, 'name' => $name, 'type' => $type]);
+            $party = Party::query()->create([
+                'organisation_id' => $organisation->id,
+                'name' => $name,
+                'type' => $type,
+                'agent_abilities' => $type === PartyType::Agent ? AgentAbilities::DEFAULT : null,
+            ]);
 
             if ($joinAsMember) {
                 $party->users()->attach($user);

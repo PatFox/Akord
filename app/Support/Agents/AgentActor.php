@@ -11,15 +11,15 @@ use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Laravel\Mcp\Server\Registrar;
 use Laravel\Passport\AccessToken;
-use Laravel\Sanctum\PersonalAccessToken;
 
 /**
  * The actor behind an API or MCP request, from either kind of agent credential:
  *
  * - a Sanctum token from a claim code: the token's user is the agent party;
  * - an OAuth token (Passport) from MCP sign-in: the token's user is the owner who
- *   approved the client, and their AgentConnection names the agent party and abilities.
+ *   approved the client, and their AgentConnection names the agent party.
  *
+ * Either way the actor gets the party's abilities (Party::agentAbilities()), read on every request.
  * At a party's own MCP URL (/mcp/agents/{party}) the credential must be for that party:
  * a repo configured for one party can never act as another.
  */
@@ -37,11 +37,7 @@ final class AgentActor
                 throw new AuthorizationException('This token belongs to another agent party. Use that party’s own MCP URL.');
             }
 
-            /** @var PersonalAccessToken|null $token set by Sanctum for token-authenticated requests */
-            $token = $user->currentAccessToken();
-            $abilities = $token === null ? [] : array_values(array_map(strval(...), (array) $token->abilities));
-
-            return Actor::agent($user, $abilities);
+            return Actor::agent($user, $user->agentAbilities());
         }
 
         if ($user instanceof User && $user->token() instanceof AccessToken) {
@@ -107,6 +103,6 @@ final class AgentActor
             $connection->forceFill(['last_used_at' => now()])->saveQuietly();
         }
 
-        return Actor::agent($party, $connection->abilities);
+        return Actor::agent($party, $party->agentAbilities());
     }
 }

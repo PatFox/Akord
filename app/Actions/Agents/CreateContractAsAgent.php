@@ -32,7 +32,7 @@ final class CreateContractAsAgent
         }
 
         if (! $actor->tokenAllows(self::ABILITY)) {
-            throw new AuthorizationException("This token lacks the '".self::ABILITY."' ability.");
+            throw new AuthorizationException("This agent party lacks the '".self::ABILITY."' ability.");
         }
 
         $party = $actor->party;

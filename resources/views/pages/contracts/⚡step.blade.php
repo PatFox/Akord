@@ -11,13 +11,13 @@ use App\Enums\CommentKind;
 use App\Enums\ContractAbility;
 use App\Livewire\Concerns\ActsOnContract;
 use App\Livewire\Concerns\RunsActions;
-use App\Models\Approval;
 use App\Models\Comment;
 use App\Models\Contract;
 use App\Models\Party;
 use App\Models\Step;
 use App\Models\StepRevision;
 use App\Support\RevisionDiff;
+use App\Support\StepListing;
 use Flux\Flux;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
@@ -29,7 +29,8 @@ use Livewire\Component;
 /*
  * One step on the contract page: its row in the approval matrix, and (expanded) its text, editor, comments and
  * history. Expanding and collapsing happen in the browser; the contract page tells this component to refresh
- * when an activity concerns the step ("step-refresh.{id}") or every step ("steps-refresh").
+ * when an activity concerns the step ("step-refresh.{id}") or every step ("steps-refresh"). The page mounts it with
+ * a StepListing loaded for all its steps; later requests load this step's own.
  */
 new class extends Component {
     use ActsOnContract, RunsActions;
@@ -68,10 +69,23 @@ new class extends Component {
 
     public ?int $compareTo = null;
 
-    public function mount(Contract $contract, Step $step): void
+    /** The page's data for all its steps; only for the render that mounts this component (not kept between requests). */
+    protected ?StepListing $listing = null;
+
+    public function mount(Contract $contract, Step $step, ?StepListing $listing = null): void
     {
-        Gate::authorize('view', $contract);
         $this->contract = $contract;
+
+        // The page authorised the contract and loaded the listing's steps from it.
+        if ($listing !== null && $listing->covers($contract, $step->id)) {
+            $this->step = $step;
+            $this->listing = $listing;
+            $this->actingPartyId = $listing->actor->party?->id;
+
+            return;
+        }
+
+        Gate::authorize('view', $contract);
         $this->step = $contract->findStep($step->id);
         $this->initialiseActingParty();
     }
@@ -79,7 +93,17 @@ new class extends Component {
     #[Computed]
     public function current(): StepRevision
     {
-        return $this->step->currentRevision()->with(['authorParty', 'authorUser'])->firstOrFail();
+        return $this->listing?->current($this->step->id)
+            ?? $this->step->currentRevision()->with(['authorParty', 'authorUser'])->firstOrFail();
+    }
+
+    /**
+     * The current revision proposes archiving the step (D16): approving it agrees to remove the step.
+     */
+    #[Computed]
+    public function archiveProposed(): bool
+    {
+        return ! $this->step->isArchived() && $this->current->proposes_archive;
     }
 
     /**
@@ -90,7 +114,8 @@ new class extends Component {
     #[Computed]
     public function requiredParties(): Collection
     {
-        return $this->contract->requiredApprovers()->orderBy('name')->orderBy('parties.id')->get();
+        return $this->listing?->requiredParties()
+            ?? $this->contract->requiredApprovers()->orderBy('name')->orderBy('parties.id')->get();
     }
 
     /**
@@ -99,7 +124,8 @@ new class extends Component {
     #[Computed]
     public function approved(): array
     {
-        return ContractReadiness::countingApprovals([$this->step->id], $this->requiredParties->pluck('id')->all());
+        return $this->listing?->approved()
+            ?? ContractReadiness::countingApprovals([$this->step->id], $this->requiredParties->pluck('id')->all());
     }
 
     /**
@@ -108,18 +134,14 @@ new class extends Component {
     #[Computed]
     public function myApproval(): string
     {
-        $party = $this->actor()->party;
-        if ($party === null) {
-            return 'none';
+        if ($this->listing !== null) {
+            return $this->listing->myApproval($this->step->id);
         }
 
-        $active = Approval::query()->active()->with('revision')->where('step_id', $this->step->id)->where('party_id', $party->id)->get();
+        $party = $this->actor()->party;
 
-        return match (true) {
-            $active->contains(fn (Approval $a) => $a->revision->content_hash === $this->current->content_hash) => 'counts',
-            $active->isNotEmpty() => 'cancelled',
-            default => 'none',
-        };
+        return $party === null ? 'none'
+            : StepListing::approvalState(StepListing::activeApprovalsOf([$this->step->id], $party)->get($this->step->id, []), $this->current);
     }
 
     /**
@@ -128,7 +150,7 @@ new class extends Component {
     #[Computed]
     public function approvingPartyId(): ?string
     {
-        $party = $this->actor()->party;
+        $party = ($this->listing?->actor ?? $this->actor())->party;
 
         return $party !== null && $this->canApprove && $this->requiredParties->contains('id', $party->id) ? $party->id : null;
     }
@@ -139,17 +161,13 @@ new class extends Component {
     #[Computed]
     public function threads(): Collection
     {
-        return $this->step->comments()
-            ->whereNull('parent_id')
-            ->with(['authorParty', 'authorUser', 'revision', 'replies' => fn ($replies) => $replies->with(['authorParty', 'authorUser'])->oldest()])
-            ->oldest()
-            ->get();
+        return $this->listing?->threads($this->step->id) ?? StepListing::threadsOf([$this->step->id])->get($this->step->id, collect());
     }
 
     #[Computed]
     public function commentCount(): int
     {
-        return $this->step->comments()->count();
+        return $this->listing?->commentCount($this->step->id) ?? StepListing::commentCountsOf([$this->step->id])[$this->step->id] ?? 0;
     }
 
     /**
@@ -164,19 +182,24 @@ new class extends Component {
     #[Computed]
     public function canEdit(): bool
     {
-        return ! $this->contract->isLocked() && ! $this->step->isArchived() && $this->allows(ContractAbility::Edit);
+        return ! $this->contract->isLocked() && ! $this->step->isArchived() && $this->may(ContractAbility::Edit);
     }
 
     #[Computed]
     public function canComment(): bool
     {
-        return ! $this->contract->isLocked() && ! $this->step->isArchived() && $this->allows(ContractAbility::Comment);
+        return ! $this->contract->isLocked() && ! $this->step->isArchived() && $this->may(ContractAbility::Comment);
     }
 
     #[Computed]
     public function canApprove(): bool
     {
-        return ! $this->contract->isLocked() && ! $this->step->isArchived() && $this->allows(ContractAbility::Approve);
+        return ! $this->contract->isLocked() && ! $this->step->isArchived() && $this->may(ContractAbility::Approve);
+    }
+
+    private function may(ContractAbility $ability): bool
+    {
+        return $this->listing?->allows($ability) ?? $this->allows($ability);
     }
 
     #[Computed]
@@ -285,9 +308,29 @@ new class extends Component {
         }
     }
 
+    /**
+     * With required approvers this proposes the archive (D16); the step goes once they all approve it.
+     */
     public function archive(): void
     {
-        if ($this->attempt(fn () => app(ArchiveStep::class)->handle($this->actor(), $this->step), __('Step archived.')) !== null) {
+        $step = $this->attempt(fn () => app(ArchiveStep::class)->handle($this->actor(), $this->step));
+
+        if ($step !== null) {
+            Flux::toast(variant: 'success', text: $step->isArchived() ? __('Step archived.') : __('Archiving proposed. The step leaves the contract once every required party approves.'));
+            $this->changed();
+        }
+    }
+
+    /**
+     * Withdraws a proposal to archive the step: a new revision with the same text.
+     */
+    public function keep(): void
+    {
+        $current = $this->current;
+        $revision = $this->attempt(fn () => app(ReviseStep::class)->handle($this->actor(), $this->step, $current->number, $current->title, $current->description_md));
+
+        if ($revision !== null) {
+            Flux::toast(variant: 'success', text: __('Archiving withdrawn. The step stays.'));
             $this->changed();
         }
     }
@@ -339,9 +382,11 @@ new class extends Component {
 
     public function render()
     {
-        // Actions may have changed the step or contract during this request.
-        $this->step->refresh();
-        unset($this->current, $this->requiredParties, $this->approved, $this->myApproval, $this->approvingPartyId, $this->threads, $this->commentCount, $this->revisions, $this->canEdit, $this->canComment, $this->canApprove, $this->diffHtml);
+        // Actions may have changed the step or contract during this request (none run before the page's listing).
+        if ($this->listing === null) {
+            $this->step->refresh();
+        }
+        unset($this->current, $this->archiveProposed, $this->requiredParties, $this->approved, $this->myApproval, $this->approvingPartyId, $this->threads, $this->commentCount, $this->revisions, $this->canEdit, $this->canComment, $this->canApprove, $this->diffHtml);
 
         return $this->view();
     }
@@ -390,6 +435,8 @@ new class extends Component {
             <span class="min-w-0 font-medium wrap-anywhere line-clamp-3" x-bind:class="open && 'line-clamp-none'" data-test="step-title">{{ $this->current->title }}</span>
             @if ($step->isArchived())
                 <flux:badge size="sm" color="zinc" icon="archive-box" class="shrink-0">{{ __('Archived') }}</flux:badge>
+            @elseif ($this->archiveProposed)
+                <flux:badge size="sm" color="amber" icon="archive-box" class="shrink-0" data-test="archive-proposed">{{ __('Archiving proposed') }}</flux:badge>
             @endif
         </button>
         <span class="w-10 shrink-0 text-center text-xs text-zinc-500" title="{{ __('Revision :n', ['n' => $this->current->number]) }}">r{{ $this->current->number }}</span>
@@ -402,15 +449,15 @@ new class extends Component {
             <span class="w-24 shrink-0 text-center" wire:key="tick-{{ $party->id }}">
                 @if ($party->id === $this->approvingPartyId)
                     @if ($approved)
-                        <button type="button" wire:click="withdrawApproval" title="{{ __('You approved revision :n. Click to withdraw.', ['n' => $this->current->number]) }}" data-test="my-tick">
+                        <button type="button" wire:click="withdrawApproval" title="{{ $this->archiveProposed ? __('You approved archiving this step. Click to withdraw.') : __('You approved revision :n. Click to withdraw.', ['n' => $this->current->number]) }}" data-test="my-tick">
                             <flux:icon.check-circle variant="solid" class="inline size-6 text-green-500 hover:text-green-600" />
                         </button>
                     @elseif ($this->myApproval === 'cancelled')
-                        <button type="button" wire:click="approve({{ $this->current->number }})" title="{{ __('Your approval was for an earlier revision. Click to approve revision :n.', ['n' => $this->current->number]) }}" data-test="my-tick">
+                        <button type="button" wire:click="approve({{ $this->current->number }})" title="{{ $this->archiveProposed ? __('Click to approve archiving this step.') : __('Your approval was for an earlier revision. Click to approve revision :n.', ['n' => $this->current->number]) }}" data-test="my-tick">
                             <flux:icon.exclamation-circle variant="solid" class="inline size-6 text-amber-500 hover:text-green-500" />
                         </button>
                     @else
-                        <button type="button" wire:click="approve({{ $this->current->number }})" title="{{ __('Click to approve revision :n.', ['n' => $this->current->number]) }}" data-test="my-tick">
+                        <button type="button" wire:click="approve({{ $this->current->number }})" title="{{ $this->archiveProposed ? __('Click to approve archiving this step.') : __('Click to approve revision :n.', ['n' => $this->current->number]) }}" data-test="my-tick">
                             <flux:icon.check-circle variant="outline" class="inline size-6 text-zinc-400 hover:text-green-500" />
                         </button>
                     @endif
@@ -430,7 +477,13 @@ new class extends Component {
                     @endif
                     <flux:menu.item icon="link" x-on:click="copyLink()" data-test="copy-step-link">{{ __('Copy link') }}</flux:menu.item>
                     <flux:menu.item icon="clock" wire:click="toggleHistory" x-on:click="open = true">{{ $showHistory ? __('Hide history') : __('History') }}</flux:menu.item>
-                    @if ($this->canEdit)
+                    @if ($this->canEdit && $this->archiveProposed)
+                        <flux:menu.separator />
+                        <flux:menu.item icon="arrow-uturn-left" wire:click="keep">{{ __('Keep step') }}</flux:menu.item>
+                    @elseif ($this->canEdit && $this->requiredParties->isNotEmpty())
+                        <flux:menu.separator />
+                        <flux:menu.item icon="archive-box" variant="danger" wire:click="archive" wire:confirm="{{ __('Propose archiving this step? It leaves the contract once every required party approves; until then it stays, and its approvals no longer count.') }}">{{ __('Propose archiving') }}</flux:menu.item>
+                    @elseif ($this->canEdit)
                         <flux:menu.separator />
                         <flux:menu.item icon="archive-box" variant="danger" wire:click="archive" wire:confirm="{{ __('Archive this step? It disappears from the contract but stays in history.') }}">{{ __('Archive') }}</flux:menu.item>
                     @endif
@@ -441,7 +494,19 @@ new class extends Component {
 
     {{-- Expanded: text or editor, comments, history. --}}
     <div x-show="open" x-cloak class="space-y-4 pb-4 ps-5">
-        @if ($this->myApproval === 'cancelled' && $this->approvingPartyId !== null)
+        @if ($this->archiveProposed)
+            <flux:callout icon="archive-box" color="amber" data-test="archive-proposal"
+                          :heading="__(':who proposed archiving this step', ['who' => $this->current->authorUser?->name ?? $this->current->authorParty->name])">
+                <flux:callout.text>
+                    {{ __('It leaves the contract once every required party approves; until then it stays, and approvals of its text no longer count. Editing it withdraws the proposal.') }}
+                </flux:callout.text>
+                @if ($this->canEdit)
+                    <x-slot name="actions">
+                        <flux:button size="sm" wire:click="keep">{{ __('Keep step') }}</flux:button>
+                    </x-slot>
+                @endif
+            </flux:callout>
+        @elseif ($this->myApproval === 'cancelled' && $this->approvingPartyId !== null)
             <flux:text size="sm" class="text-amber-600 dark:text-amber-400">
                 {{ __('The step changed after your party approved it. Review revision :n and approve again if you agree.', ['n' => $this->current->number]) }}
             </flux:text>
@@ -582,7 +647,9 @@ new class extends Component {
                                 · {{ $revision->created_at?->toDayDateTimeString() }}
                                 @if ($revision->change_note) · <em>{{ $revision->change_note }}</em>@endif
                             </span>
-                            @if ($previous && $previous->content_hash === $revision->content_hash)
+                            @if ($revision->proposes_archive)
+                                <flux:badge size="sm" color="amber" icon="archive-box">{{ __('Proposes archiving') }}</flux:badge>
+                            @elseif ($previous && $previous->content_hash === $revision->content_hash)
                                 <flux:badge size="sm" color="zinc">{{ __('Spacing only') }}</flux:badge>
                             @endif
                         </div>
