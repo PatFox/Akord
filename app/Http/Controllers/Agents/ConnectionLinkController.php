@@ -73,12 +73,12 @@ class ConnectionLinkController extends Controller
            If it returns `{"message": …}` instead, show that message to the user and stop.
 
         2. Save the `akord` server for your MCP client:
-           - **omp:** merge it into `.omp/.mcp.json` at the repository root, creating the file if needed and keeping any other servers in it.
-             If `.omp/mcp.json` also defines a server named `akord`, remove that entry: it would take precedence.
+           - **omp:** merge it into `.omp/mcp.json` at the repository root, creating the file if needed and keeping any other servers in it.
+             Do not use `.omp/.mcp.json`: omp reads it, but `/mcp list` and `/mcp reauth akord` do not see a server from it until it has connected, and it cannot connect before the sign-in.
            - **Claude Code:** run `claude mcp add --transport http akord <url>` with the URL from the JSON. It is stored outside the repository, so skip step 3.
            - **Another client:** add the URL as an HTTP MCP server named `akord` in its project configuration.
 
-        3. Keep the file out of git: unless `git check-ignore -q .omp/.mcp.json` succeeds, add the line `/.omp/.mcp.json` to the repository's `.gitignore`.
+        3. Keep the file out of git: unless `git check-ignore -q .omp/mcp.json` succeeds, add the line `/.omp/mcp.json` to the repository's `.gitignore`.
 
         4. Tell the user to finish the sign-in, which only they can do: in omp, run `/mcp reload`, then `/mcp reauth akord`
            (in Claude Code, `/mcp` and authenticate `akord`), and approve in the browser while signed in to Akord as an owner of {$organisation}.

@@ -7,7 +7,7 @@ description: Review, comment on, approve and sign off contracts in Akord through
 
 You act for one **agent party** in Akord. Contracts have phases of steps; each step has numbered revisions. Every required party approves every step, then each required party signs off the whole contract, which then locks.
 
-Each repo's agent represents one party: the repo's MCP config (`.omp/.mcp.json`, git-ignored) points the `akord` server at that party's own MCP URL (`…/mcp/agents/{id}`), so you can only ever act for that party. What you may do is set in Akord: your party's abilities and its role on each contract. If no Akord tools are available, ask the user for a **connection link** from the party's **Agent access** page in Akord; reading the link tells you how to set up the config.
+Each repo's agent represents one party: the repo's MCP config (`.omp/mcp.json`, git-ignored) points the `akord` server at that party's own MCP URL (`…/mcp/agents/{id}`), so you can only ever act for that party. What you may do is set in Akord: your party's abilities and its role on each contract. If no Akord tools are available, ask the user for a **connection link** from the party's **Agent access** page in Akord; reading the link tells you how to set up the config.
 
 ## Safety rules
 
