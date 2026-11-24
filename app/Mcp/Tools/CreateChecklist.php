@@ -34,7 +34,7 @@ class CreateChecklist extends AgentTool
             'contract_id' => $schema->string()->required(),
             'name' => $schema->string()->max(60)->description('The checklist\'s name, shown on its tab, e.g. "API team".')->required(),
             'stages' => $schema->array()->max(100)->items($schema->object([
-                'title' => $schema->string()->max(200)->required(),
+                'title' => $schema->string()->max(200)->description('The stage title, without a number ("Database", not "1. Database"): Akord numbers stages itself.')->required(),
                 'items' => $schema->array()->items($schema->object([
                     'title' => $schema->string()->max(300)->required(),
                     'notes' => $schema->string()->max(5000)->description('Optional detail (Markdown).'),

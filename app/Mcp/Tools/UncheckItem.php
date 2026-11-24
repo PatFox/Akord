@@ -12,7 +12,7 @@ use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 
 #[Name('uncheck_item')]
-#[Description('Untick a checklist item, for example when its work turned out unfinished. Needs an editor party.')]
+#[Description('Untick a checklist item, for example when its work turned out unfinished. Needs an editor party, or your party among the checklist\'s assigned_parties.')]
 class UncheckItem extends AgentTool
 {
     public function handle(Request $request): Response

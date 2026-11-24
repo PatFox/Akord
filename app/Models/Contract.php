@@ -79,8 +79,8 @@ class Contract extends Model
     }
 
     /**
-     * Agreed (D3) or no longer open (D14): read-only, apart from invitations, the status itself
-     * and starting a new version.
+     * Agreed (D3) or no longer open (D14): read-only, apart from invitations, the status itself,
+     * starting a new version and, on open agreed versions, role changes (D17).
      *
      * @phpstan-impure reads mutable state
      */

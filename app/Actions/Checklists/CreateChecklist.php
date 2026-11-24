@@ -17,9 +17,9 @@ use App\Support\ContractTransaction;
 /**
  * Creates (or replaces) a contract version's checklist: stages of items, each optionally linked to the contract step
  * it came from. Without stages, it copies the contract's phases and active steps. A version can have several, each
- * named; creating one with an existing name (ignoring case) replaces it, which needs $replace if items are ticked.
- * Needs the edit ability; works on agreed versions (that is when the work happens) but not on complete or cancelled
- * ones.
+ * named; creating one with an existing name (ignoring case) replaces it, which needs $replace if items are ticked,
+ * and keeps its assigned parties (D18). Needs the edit ability; works on agreed versions (that is when the work
+ * happens) but not on complete or cancelled ones.
  */
 final class CreateChecklist
 {
@@ -44,10 +44,12 @@ final class CreateChecklist
 
             // The same name, ignoring case (MySQL compares case-insensitively, SQLite does not), is the same checklist.
             $existing = Checklist::query()->where('contract_id', $contract->getKey())->whereRaw('lower(name) = ?', [mb_strtolower($name)])->first();
+            $assignees = [];
             if ($existing !== null) {
                 if (! $replace && $existing->items()->whereNotNull('checked_at')->exists()) {
                     throw new InvalidActionException("The checklist \"{$existing->name}\" has ticked items. Pass replace to start it again.");
                 }
+                $assignees = $existing->assignedParties()->pluck('parties.id')->all();
                 $existing->delete();
             } elseif (Checklist::query()->where('contract_id', $contract->getKey())->count() >= ChecklistInput::MAX_CHECKLISTS) {
                 throw new InvalidActionException('A contract can have at most '.ChecklistInput::MAX_CHECKLISTS.' checklists.');
@@ -59,6 +61,7 @@ final class CreateChecklist
                 'created_by_party_id' => ContractAccess::actingParty($actor)->getKey(),
                 'created_by_user_id' => $actor->user?->getKey(),
             ]);
+            $checklist->assignedParties()->attach($assignees);
 
             foreach ($stages as $s => $stage) {
                 $row = ChecklistStage::query()->create(['checklist_id' => $checklist->id, 'title' => $stage['title'], 'position' => $s + 1]);

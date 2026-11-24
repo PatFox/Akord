@@ -7,7 +7,7 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 
 /**
  * Any write to a locked contract: agreed (D3) or no longer open (D14). Invitations, the status
- * itself and starting a new version are exempt.
+ * itself, starting a new version and, on open agreed versions, role changes (D17) are exempt.
  */
 class ContractLockedException extends HttpException
 {

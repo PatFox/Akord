@@ -22,7 +22,7 @@ use App\Support\ContractTransaction;
  * (D14). Copies parties, roles, required approvers, phases and active steps (each as revision 1, keeping the original
  * author). The approvals that counted on each step are carried over too, since the content is unchanged; withdrawn
  * approvals, sign-offs and comments are not. An agreed contract had every step approved, so the new version starts
- * ready for sign-off, recorded as `contract.ready` on it. Its checklists are copied with their ticks.
+ * ready for sign-off, recorded as `contract.ready` on it. Its checklists are copied with their ticks and assigned parties.
  */
 final class StartNewVersion
 {
@@ -118,7 +118,7 @@ final class StartNewVersion
      */
     private function copyChecklists(Contract $from, Contract $to, array $stepMap): void
     {
-        $checklists = Checklist::query()->where('contract_id', $from->getKey())->with('stages.items')->orderBy('created_at')->orderBy('name')->get();
+        $checklists = Checklist::query()->where('contract_id', $from->getKey())->with(['stages.items', 'assignedParties'])->orderBy('created_at')->orderBy('name')->get();
 
         foreach ($checklists as $checklist) {
             $copy = Checklist::query()->create([
@@ -127,6 +127,7 @@ final class StartNewVersion
                 'created_by_party_id' => $checklist->created_by_party_id,
                 'created_by_user_id' => $checklist->created_by_user_id,
             ]);
+            $copy->assignedParties()->attach($checklist->assignedParties->modelKeys());
 
             foreach ($checklist->stages as $stage) {
                 $stageCopy = ChecklistStage::query()->create(['checklist_id' => $copy->id, 'title' => $stage->title, 'position' => $stage->position]);

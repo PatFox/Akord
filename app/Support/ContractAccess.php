@@ -5,6 +5,7 @@ namespace App\Support;
 use App\Enums\ContractAbility;
 use App\Enums\ContractRole;
 use App\Exceptions\InvalidActionException;
+use App\Models\Checklist;
 use App\Models\Contract;
 use App\Models\ContractParty;
 use App\Models\Party;
@@ -80,6 +81,43 @@ final class ContractAccess
     {
         try {
             self::authorize($actor, $contract, $ability);
+        } catch (AuthorizationException|InvalidActionException|ModelNotFoundException) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Ticking a checklist's items: whoever may edit, or a party assigned to that checklist whatever its role (D18).
+     * An agent still needs the 'edit' ability.
+     *
+     * @throws ModelNotFoundException<Contract>
+     * @throws AuthorizationException
+     * @throws InvalidActionException
+     */
+    public static function authorizeTick(Actor $actor, Contract $contract, Checklist $checklist): void
+    {
+        try {
+            self::authorize($actor, $contract, ContractAbility::Edit);
+        } catch (AuthorizationException $refused) {
+            if (! $actor->tokenAllows(ContractAbility::Edit->tokenAbility())) {
+                throw $refused;
+            }
+
+            if (! $checklist->assignedParties()->whereKey(self::actingParty($actor)->getKey())->exists()) {
+                throw new AuthorizationException('Your party\'s role on this contract does not allow this, and it is not assigned to this checklist.');
+            }
+        }
+    }
+
+    /**
+     * Whether authorizeTick() would pass; for deciding which controls to show.
+     */
+    public static function allowsTick(Actor $actor, Contract $contract, Checklist $checklist): bool
+    {
+        try {
+            self::authorizeTick($actor, $contract, $checklist);
         } catch (AuthorizationException|InvalidActionException|ModelNotFoundException) {
             return false;
         }

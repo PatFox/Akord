@@ -232,8 +232,10 @@ new class extends Component {
 
     <div>
         <flux:heading size="xl" level="1">{{ __('Contract settings') }}</flux:heading>
-        @if ($contract->isAgreed())
-            <flux:text class="mt-1">{{ __('This version is agreed and locked; start a new version to change parties or rules.') }}</flux:text>
+        @if ($contract->isAgreed() && $contract->isOpen())
+            <flux:text class="mt-1">{{ __('This version is agreed and locked; roles can still change. Start a new version to change anything else.') }}</flux:text>
+        @elseif ($contract->isAgreed())
+            <flux:text class="mt-1">{{ __('This version is agreed and marked :status; reopen it on the contract page to change roles, or start a new version to change anything else.', ['status' => strtolower(__($contract->status->label()))]) }}</flux:text>
         @elseif (! $contract->isOpen())
             <flux:text class="mt-1">{{ __('This version is marked :status; reopen it on the contract page to change parties or rules.', ['status' => strtolower(__($contract->status->label()))]) }}</flux:text>
         @endif
@@ -258,7 +260,7 @@ new class extends Component {
                             <flux:text size="sm">{{ $membership->party->type->label() }}@unless ($membership->party->isAgent()) · {{ trans_choice(':count member|:count members', $membership->party->users_count) }}@endunless</flux:text>
                         </flux:table.cell>
                         <flux:table.cell>
-                            <flux:select wire:model.live="roles.{{ $membership->party_id }}" size="sm" class="max-w-36" :disabled="$contract->isLocked()">
+                            <flux:select wire:model.live="roles.{{ $membership->party_id }}" size="sm" class="max-w-36" :disabled="! $contract->isOpen()">
                                 @foreach (\App\Enums\ContractRole::cases() as $role)
                                     <flux:select.option :value="$role->value">{{ $role->label() }}</flux:select.option>
                                 @endforeach

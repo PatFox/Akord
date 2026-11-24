@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "akord",
-      "version": "1.7.1",
+      "version": "1.7.3",
       "description": "Akord contracts for agents: a contract-review skill. The MCP server is configured per repo, one agent party each.",
       "source": "./integrations/omp/akord"
     }

@@ -32,6 +32,7 @@ Only when the user asks, and only if your party is an editor. `get_contract` giv
 
 - `create_step` adds a step to a phase; `move_step` moves one within its phase or to another phase. Both take `after_step_id`: omit it for the end of the phase, `"start"` for the start, or a step id to go directly after that step.
 - `create_phase` adds a phase at the end of the contract. Phases cannot be deleted.
+- Phase and step titles take no number ("Design", not "1. Design"): Akord numbers phases and steps itself, so a number in the title shows twice.
 - `archive_step` proposes removing a step. The step stays, and its approvals stop counting, until every required party approves the proposal revision; then it is archived. Any `revise_step` on it (even with the same text) withdraws the proposal. Without required approvers it is archived at once. Archived steps **cannot be restored**: confirm with the user first.
 - A new step or an archive proposal cancels the contract's sign-offs; moving a step does not affect approvals or sign-offs.
 
@@ -39,8 +40,8 @@ Only when the user asks, and only if your party is an editor. `get_contract` giv
 
 A contract version can have several working checklists, each with a name (for example one per team): stages of items, ticked off as the work is done. They are separate from what was agreed, so they still change after agreement (but not once the contract is complete or cancelled), and ticking never affects approvals or sign-offs.
 
-- **Creating one** (only when the user asks, and only if your party is an editor): read the plan (`get_contract` with `format: markdown`), then `create_checklist` with a `name` (shown on its tab, e.g. `"API team"`; a contract can have several, one per team) and your own `stages`, each with `items` (`title`, optional `notes`, and `step_id` for the contract step an item comes from). Break steps into concrete tasks where that helps, and keep to the work of the team the checklist is for. Omit `stages` to copy the contract's phases and steps as they are. Using a name that exists (ignoring case) replaces that checklist; if it has ticked items, that needs `replace: true`: confirm with the user first.
-- **While working:** `get_checklists` for every checklist with its item ids and what is done; `check_item` as soon as an item's work is finished, `uncheck_item` if it turns out unfinished. `add_checklist_item` adds work you discover to the end of a stage.
+- **Creating one** (only when the user asks, and only if your party is an editor): read the plan (`get_contract` with `format: markdown`), then `create_checklist` with a `name` (shown on its tab, e.g. `"API team"`; a contract can have several, one per team) and your own `stages`, each with a `title` (no number: Akord numbers stages itself) and `items` (`title`, optional `notes`, and `step_id` for the contract step an item comes from). Break steps into concrete tasks where that helps, and keep to the work of the team the checklist is for. Omit `stages` to copy the contract's phases and steps as they are. Using a name that exists (ignoring case) replaces that checklist; if it has ticked items, that needs `replace: true`: confirm with the user first.
+- **While working:** `get_checklists` for every checklist with its item ids and what is done; `check_item` as soon as an item's work is finished, `uncheck_item` if it turns out unfinished. Editor parties tick items of any checklist; a checklist's `assigned_parties` (assigned by an owner in Akord) tick its items whatever their role. `add_checklist_item` adds work you discover to the end of a stage, and needs an editor party.
 
 ## Closing a contract
 

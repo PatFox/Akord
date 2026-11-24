@@ -4,6 +4,7 @@ namespace App\Actions\Contracts;
 
 use App\Enums\ContractAbility;
 use App\Enums\ContractRole;
+use App\Exceptions\ContractLockedException;
 use App\Exceptions\InvalidActionException;
 use App\Models\Contract;
 use App\Models\ContractParty;
@@ -15,6 +16,8 @@ use App\Support\ContractTransaction;
 
 /**
  * Owner-only (D4): attaches a party of the contract's organisation to the contract, or changes its role.
+ * A role is access, not agreed content (outside the fingerprint), so it can change on an agreed version too (D17);
+ * attaching still needs an unlocked version, and a complete or cancelled version must be reopened first.
  */
 final class AttachParty
 {
@@ -24,6 +27,14 @@ final class AttachParty
             // A party from another organisation is reported as missing, not forbidden.
             $party = Party::query()->whereKey($party->id)->where('organisation_id', $contract->organisationId())->firstOrFail();
             $membership = ContractAccess::membership($party, $contract);
+
+            if ($membership === null && $contract->isLocked()) {
+                throw ContractLockedException::for($contract);
+            }
+
+            if (! $contract->isOpen()) {
+                throw new ContractLockedException("This contract is marked {$contract->status->value}. Reopen it to change roles.");
+            }
 
             if ($membership === null) {
                 $membership = ContractParty::query()->create([
@@ -50,6 +61,6 @@ final class AttachParty
             $log->record('party.role_changed', $party, ['from' => $from->value, 'to' => $role->value]);
 
             return $membership;
-        });
+        }, allowWhenLocked: true);
     }
 }

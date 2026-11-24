@@ -11,19 +11,22 @@ use App\Support\ContractAccess;
 use App\Support\ContractTransaction;
 
 /**
- * Ticks or unticks one checklist item, recording who and when. Same rules as creating the checklist; repeating the
+ * Ticks or unticks one checklist item, recording who and when. Whoever may edit, or a party assigned to the item's
+ * checklist whatever its role (D18); works on agreed versions but not on complete or cancelled ones. Repeating the
  * current state is a no-op.
  */
 final class SetChecklistItemChecked
 {
     public function handle(Actor $actor, Contract $contract, string $itemId, bool $checked): ChecklistItem
     {
-        return ContractTransaction::run($contract, $actor, ContractAbility::Edit, function (Contract $contract, ActivityLog $log) use ($actor, $itemId, $checked): ChecklistItem {
-            ChecklistInput::ensureOpen($contract);
-
+        return ContractTransaction::run($contract, $actor, ContractAbility::View, function (Contract $contract, ActivityLog $log) use ($actor, $itemId, $checked): ChecklistItem {
             $item = ChecklistItem::query()->whereKey($itemId)
                 ->whereHas('stage.checklist', fn ($checklist) => $checklist->where('contract_id', $contract->getKey()))
+                ->with('stage.checklist')
                 ->firstOrFail();
+
+            ContractAccess::authorizeTick($actor, $contract, $item->stage->checklist);
+            ChecklistInput::ensureOpen($contract);
 
             if ($item->isChecked() === $checked) {
                 return $item;

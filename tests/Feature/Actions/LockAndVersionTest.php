@@ -29,6 +29,7 @@ use App\Models\Approval;
 use App\Models\Comment;
 use App\Models\ContractSignoff;
 use App\Models\Step;
+use App\Support\Actor;
 use Illuminate\Support\Facades\Mail;
 use Tests\Support\Scenario;
 
@@ -163,4 +164,24 @@ test('the status changes with the edit ability, on agreed versions too, only on 
     expect($next->fresh()?->status)->toBe(ContractStatus::Open)
         ->and($this->s->contract->fresh()?->status)->toBe(ContractStatus::Complete)
         ->and(status(fn () => app(SetContractStatus::class)->handle($this->s->alpha, $this->s->contract, ContractStatus::Open)))->toBe(422);
+});
+
+test('an owner can change a role on an agreed version without touching its agreement, but not while it is closed', function () {
+    $fingerprint = $this->s->contract->fresh()?->agreed_fingerprint;
+    $changeRole = fn (Actor $party, ContractRole $role) => status(fn () => app(AttachParty::class)->handle($this->s->ownerActor(), $this->s->contract, $party->party, $role));
+
+    expect(status(fn () => app(SetContractStatus::class)->handle($this->s->beta, $this->s->contract, ContractStatus::Complete)))->toBe(403)
+        ->and($changeRole($this->s->beta, ContractRole::Editor))->toBe(200)
+        ->and($changeRole($this->s->beta, ContractRole::Viewer))->toBe(422)
+        ->and($this->s->activityCount('party.role_changed'))->toBe(1)
+        ->and($this->s->contract->fresh()?->isAgreed())->toBeTrue()
+        ->and($this->s->readiness()->fingerprint)->toBe($fingerprint)
+        ->and($this->s->readiness()->signedOffPartyIds)->toHaveCount(2);
+
+    // The new role takes effect: beta may now change the status, which closes the version to role changes.
+    app(SetContractStatus::class)->handle($this->s->beta, $this->s->contract, ContractStatus::Complete);
+    expect($changeRole($this->s->alpha, ContractRole::Commenter))->toBe(423);
+
+    app(SetContractStatus::class)->handle($this->s->beta, $this->s->contract, ContractStatus::Open);
+    expect($changeRole($this->s->alpha, ContractRole::Commenter))->toBe(200);
 });

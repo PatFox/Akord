@@ -194,7 +194,7 @@ final class AgentPresenter
      */
     public static function checklist(Checklist $checklist): array
     {
-        $checklist->loadMissing(['createdByParty', 'createdByUser', 'stages.items.checkedByParty', 'stages.items.checkedByUser']);
+        $checklist->loadMissing(['createdByParty', 'createdByUser', 'assignedParties', 'stages.items.checkedByParty', 'stages.items.checkedByUser']);
         $items = $checklist->stages->flatMap(fn (ChecklistStage $stage) => $stage->items);
 
         return [
@@ -203,6 +203,8 @@ final class AgentPresenter
             'content' => ['name' => $checklist->name],
             'created_at' => $checklist->created_at?->toIso8601String(),
             'created_by' => ['party' => $checklist->createdByParty->name, 'user' => $checklist->createdByUser?->name],
+            // These parties tick its items whatever their role on the contract (D18).
+            'assigned_parties' => $checklist->assignedParties->sortBy('name')->map(fn (Party $p) => ['id' => $p->id, 'name' => $p->name])->values()->all(),
             'done' => $items->filter(fn (ChecklistItem $item) => $item->isChecked())->count(),
             'total' => $items->count(),
             'stages' => $checklist->stages->map(fn (ChecklistStage $stage) => [

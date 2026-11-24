@@ -31,7 +31,7 @@ class CreatePhase extends AgentTool
     {
         return [
             'contract_id' => $schema->string()->required(),
-            'title' => $schema->string()->required(),
+            'title' => $schema->string()->description('The phase title, without a number ("Design", not "1. Design"): Akord numbers phases itself.')->required(),
         ];
     }
 }

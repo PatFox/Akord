@@ -41,6 +41,15 @@ class ChecklistStage extends Model
     }
 
     /**
+     * "N. Title", unless the title already starts with its own number ("1. Database", "1) Database"), as agents
+     * often write them; then the title alone, so the number doesn't show twice.
+     */
+    public function heading(): string
+    {
+        return preg_match('/^'.$this->position.'[.):](?!\d)/', $this->title) === 1 ? $this->title : $this->position.'. '.$this->title;
+    }
+
+    /**
      * @return HasMany<ChecklistItem, $this>
      */
     public function items(): HasMany

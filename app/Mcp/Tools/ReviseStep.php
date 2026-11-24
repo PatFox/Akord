@@ -36,7 +36,7 @@ class ReviseStep extends AgentTool
             'contract_id' => $schema->string()->required(),
             'step_id' => $schema->string()->required(),
             'base_revision' => $schema->integer()->min(1)->description('The revision number you started from.')->required(),
-            'title' => $schema->string()->required(),
+            'title' => $schema->string()->description('The step title, without a number: Akord numbers steps itself.')->required(),
             'description_md' => $schema->string()->description('The full new description (Markdown).')->required(),
             'change_note' => $schema->string()->description('Why you changed it.'),
         ];

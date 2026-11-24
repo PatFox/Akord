@@ -2,7 +2,9 @@
 
 use App\Actions\Checklists\AddChecklistItem;
 use App\Actions\Checklists\CreateChecklist;
+use App\Actions\Checklists\SetChecklistAssignee;
 use App\Actions\Checklists\SetChecklistItemChecked;
+use App\Actions\Contracts\DetachParty;
 use App\Actions\Contracts\SetContractStatus;
 use App\Actions\Contracts\SignOffContract;
 use App\Actions\Contracts\StartNewVersion;
@@ -13,6 +15,7 @@ use App\Models\Checklist;
 use App\Models\ChecklistItem;
 use App\Models\Party;
 use App\Support\ActivityDescription;
+use App\Support\Actor;
 use Livewire\Livewire;
 use Tests\Support\Scenario;
 
@@ -151,4 +154,86 @@ test('each checklist gets its own tab, "Checklist: name", with its count; people
 
     $this->actingAs($this->s->beta->user);
     Livewire::test('pages::contracts.checklist', ['contract' => $this->s->contract, 'checklistId' => $api->id])->assertSeeHtml('disabled');
+});
+
+test('a stage title that already starts with its number is not numbered again', function () {
+    $this->actingAs($this->s->alpha->user);
+    $checklist = app(CreateChecklist::class)->handle($this->s->alpha, $this->s->contract, 'API team', [
+        ['title' => '1. Database', 'items' => []],
+        ['title' => '2) Screens', 'items' => []],
+        ['title' => 'Webhooks', 'items' => []],
+        ['title' => '1.5 kg limit', 'items' => []],
+        ['title' => '2. Numbered for another stage', 'items' => []],
+    ]);
+
+    Livewire::test('pages::contracts.checklist', ['contract' => $this->s->contract, 'checklistId' => $checklist->id])
+        ->assertSeeInOrder(['1. Database', '2) Screens', '3. Webhooks', '4. 1.5 kg limit', '5. 2. Numbered for another stage'])
+        ->assertDontSee('1. 1. Database')
+        ->assertDontSee('2. 2) Screens');
+});
+
+test('an owner assigns attached parties to a checklist, which then tick its items whatever their role', function () {
+    $api = app(CreateChecklist::class)->handle($this->s->alpha, $this->s->contract, 'API team');
+    $app = app(CreateChecklist::class)->handle($this->s->alpha, $this->s->contract, 'App team', [['title' => 'Screens', 'items' => [['title' => 'Login']]]]);
+    $viewer = $this->s->party(ContractRole::Viewer);
+    $readOnlyAgent = $this->s->party(ContractRole::Viewer, agent: true, abilities: ['read']);
+    $outsider = $this->s->party(null);
+    $assign = fn (Actor $as, Actor $party, bool $assigned = true) => status(fn () => app(SetChecklistAssignee::class)->handle($as, $this->s->contract, $api->id, $party->party, $assigned));
+    $tick = fn (Actor $as, Checklist $checklist) => status(fn () => app(SetChecklistItemChecked::class)->handle($as, $this->s->contract, $checklist->items()->first()->id, true));
+
+    expect($assign($this->s->alpha, $viewer))->toBe(403)
+        ->and($assign($this->s->ownerActor(), $outsider))->toBe(422)
+        ->and($tick($viewer, $api))->toBe(403)
+        ->and($assign($this->s->ownerActor(), $viewer))->toBe(200)
+        ->and($assign($this->s->ownerActor(), $viewer))->toBe(200)
+        ->and($assign($this->s->ownerActor(), $readOnlyAgent))->toBe(200)
+        ->and($this->s->activityCount('checklist.party_assigned'))->toBe(2)
+        ->and($tick($viewer, $api))->toBe(200)
+        ->and($tick($viewer, $app))->toBe(403)
+        ->and($tick($readOnlyAgent, $api))->toBe(403)
+        ->and(ActivityDescription::for(ActivityEvent::query()->where('type', 'checklist.party_assigned')->firstOrFail()))->toContain('to “API team”');
+
+    // Replacing the checklist by name keeps its assignees; detaching the party ends its assignment.
+    $replaced = app(CreateChecklist::class)->handle($this->s->alpha, $this->s->contract, 'API team', replace: true);
+    expect($tick($viewer, $replaced))->toBe(200);
+    app(DetachParty::class)->handle($this->s->ownerActor(), $this->s->contract, $viewer->party);
+    expect($replaced->assignedParties()->pluck('parties.id')->all())->toBe([$readOnlyAgent->party?->id]);
+
+    // Unassigning takes the right away again; a new version keeps the assignees.
+    expect(status(fn () => app(SetChecklistAssignee::class)->handle($this->s->ownerActor(), $this->s->contract, $replaced->id, $readOnlyAgent->party, false)))->toBe(200)
+        ->and($replaced->assignedParties()->count())->toBe(0);
+    $member = $this->s->party(ContractRole::Commenter);
+    app(SetChecklistAssignee::class)->handle($this->s->ownerActor(), $this->s->contract, $replaced->id, $member->party, true);
+    $this->s->approveAll($this->one, $this->two);
+    $fingerprint = $this->s->readiness()->fingerprint;
+    app(SignOffContract::class)->handle($this->s->alpha, $this->s->contract, $fingerprint);
+    app(SignOffContract::class)->handle($this->s->beta, $this->s->contract, $fingerprint);
+    $next = app(StartNewVersion::class)->handle($this->s->ownerActor(), $this->s->contract);
+
+    expect($next->checklists()->where('name', 'API team')->sole()->assignedParties()->pluck('parties.id')->all())->toBe([$member->party?->id])
+        ->and(status(fn () => app(SetChecklistItemChecked::class)->handle($member, $next, $next->checklists()->where('name', 'API team')->sole()->items()->first()->id, true)))->toBe(200);
+
+    // A complete version takes no assignments.
+    app(SetContractStatus::class)->handle($this->s->alpha, $next, ContractStatus::Complete);
+    expect(status(fn () => app(SetChecklistAssignee::class)->handle($this->s->ownerActor(), $next, $next->checklists()->where('name', 'API team')->sole()->id, $member->party, false)))->toBe(423);
+});
+
+test('owners assign from the checklist tab; an assigned viewer ticks there', function () {
+    $api = app(CreateChecklist::class)->handle($this->s->alpha, $this->s->contract, 'API team');
+    $viewer = $this->s->party(ContractRole::Viewer);
+
+    $this->actingAs($viewer->user);
+    $before = Livewire::test('pages::contracts.checklist', ['contract' => $this->s->contract, 'checklistId' => $api->id])
+        ->assertDontSeeHtml('data-test="checklist-assignees"');
+    expect($before->instance()->canTick)->toBeFalse();
+
+    $this->actingAs($this->s->owner);
+    Livewire::test('pages::contracts.checklist', ['contract' => $this->s->contract, 'checklistId' => $api->id])
+        ->set('assignPartyId', $viewer->party->id)->call('assign')
+        ->assertSeeInOrder(['Assigned:', $viewer->party->name]);
+
+    $this->actingAs($viewer->user);
+    $after = Livewire::test('pages::contracts.checklist', ['contract' => $this->s->contract, 'checklistId' => $api->id]);
+    expect($after->instance()->canTick)->toBeTrue();
+    $after->call('toggle', $api->items()->first()->id)->assertSee('1 of 2 done');
 });

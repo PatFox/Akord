@@ -8,7 +8,8 @@ use Illuminate\Http\Request;
 
 /**
  * A contract version's working checklists (several, each named). Writes need the 'edit' ability and an editor party;
- * they work on agreed versions, and are 423 on complete or cancelled ones.
+ * ticking and unticking also work for a party assigned to the checklist, whatever its role (D18). They work on agreed
+ * versions, and are 423 on complete or cancelled ones.
  */
 class ChecklistController extends AgentApiController
 {

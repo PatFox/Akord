@@ -39,7 +39,7 @@ class CreateStep extends AgentTool
         return [
             'contract_id' => $schema->string()->required(),
             'phase_id' => $schema->string()->required(),
-            'title' => $schema->string()->required(),
+            'title' => $schema->string()->description('The step title, without a number ("Error format", not "1.2 Error format"): Akord numbers steps itself.')->required(),
             'description_md' => $schema->string()->description('The description (Markdown).')->required(),
             'change_note' => $schema->string()->description('Why you added it.'),
             'after_step_id' => $schema->string()->description('Place it directly after this step of the phase; "start" for first; omit for last.'),

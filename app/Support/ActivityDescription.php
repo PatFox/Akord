@@ -77,12 +77,14 @@ final class ActivityDescription
             'checklist.item_checked' => __(':actor ticked :subject in :name', ['actor' => $actor, 'subject' => $subject, 'name' => self::checklistName($event)]),
             'checklist.item_unchecked' => __(':actor unticked :subject in :name', ['actor' => $actor, 'subject' => $subject, 'name' => self::checklistName($event)]),
             'checklist.item_added' => __(':actor added :subject to :name', ['actor' => $actor, 'subject' => $subject, 'name' => self::checklistName($event)]),
+            'checklist.party_assigned' => __(':actor assigned :subject to :name', ['actor' => $actor, 'subject' => $subject, 'name' => self::checklistName($event)]),
+            'checklist.party_unassigned' => __(':actor removed :subject from :name', ['actor' => $actor, 'subject' => $subject, 'name' => self::checklistName($event)]),
             default => __(':actor made a change', compact('actor')),
         };
     }
 
     /**
-     * “API team”, from the payload (creation) or the item's checklist; "the checklist" when neither is known any more.
+     * “API team”, from the payload (creation, assignment) or the item's checklist; "the checklist" when neither is known any more.
      */
     private static function checklistName(ActivityEvent $event): string
     {

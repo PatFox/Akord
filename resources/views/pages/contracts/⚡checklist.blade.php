@@ -1,12 +1,16 @@
 <?php
 
+use App\Actions\Checklists\SetChecklistAssignee;
 use App\Actions\Checklists\SetChecklistItemChecked;
-use App\Enums\ContractAbility;
 use App\Livewire\Concerns\ActsOnContract;
 use App\Livewire\Concerns\RunsActions;
 use App\Models\Checklist;
 use App\Models\ChecklistItem;
 use App\Models\Contract;
+use App\Models\ContractParty;
+use App\Models\Party;
+use App\Support\ContractAccess;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\On;
@@ -14,8 +18,8 @@ use Livewire\Component;
 
 /*
  * One of the contract page's Checklist tabs: a named working checklist, ticked off as the work is done. Agents write
- * them (create_checklist); people and agents who may edit tick items, also after agreement, until the contract is
- * complete or cancelled.
+ * them (create_checklist); people and agents who may edit tick items, and so do the parties an owner assigns to the
+ * checklist whatever their role (D18), also after agreement, until the contract is complete or cancelled.
  */
 new class extends Component {
     use ActsOnContract, RunsActions;
@@ -23,6 +27,8 @@ new class extends Component {
     public Contract $contract;
 
     public string $checklistId;
+
+    public ?string $assignPartyId = null;
 
     public function mount(Contract $contract, string $checklistId): void
     {
@@ -39,14 +45,56 @@ new class extends Component {
     public function checklist(): ?Checklist
     {
         return Checklist::query()->where('contract_id', $this->contract->id)->whereKey($this->checklistId)
-            ->with(['createdByParty', 'createdByUser', 'stages.items' => fn ($items) => $items->with(['checkedByParty', 'checkedByUser', 'step.currentRevision'])])
+            ->with([
+                'createdByParty', 'createdByUser', 'assignedParties' => fn ($parties) => $parties->orderBy('name'),
+                'stages.items' => fn ($items) => $items->with(['checkedByParty', 'checkedByUser', 'step.currentRevision']),
+            ])
             ->first();
     }
 
     #[Computed]
     public function canTick(): bool
     {
-        return $this->contract->isOpen() && $this->allows(ContractAbility::Edit);
+        return $this->checklist !== null && $this->contract->isOpen() && ContractAccess::allowsTick($this->actor(), $this->contract, $this->checklist);
+    }
+
+    #[Computed]
+    public function canAssign(): bool
+    {
+        return $this->isOwner && $this->contract->isOpen();
+    }
+
+    /**
+     * Parties attached to the contract that are not assigned to this checklist yet.
+     *
+     * @return Collection<int, Party>
+     */
+    #[Computed]
+    public function assignable(): Collection
+    {
+        return Party::query()
+            ->whereIn('id', ContractParty::query()->where('contract_id', $this->contract->id)->select('party_id'))
+            ->whereNotIn('id', $this->checklist?->assignedParties->modelKeys() ?? [])
+            ->orderBy('name')
+            ->get();
+    }
+
+    public function assign(): void
+    {
+        $party = Party::query()->find($this->assignPartyId);
+        if ($party === null) {
+            $this->refused(__('Choose a party to assign.'), 422);
+
+            return;
+        }
+
+        $this->attempt(fn () => app(SetChecklistAssignee::class)->handle($this->actor(), $this->contract, $this->checklistId, $party, true), __('Party assigned.'));
+    }
+
+    public function unassign(string $partyId): void
+    {
+        $party = Party::query()->findOrFail($partyId);
+        $this->attempt(fn () => app(SetChecklistAssignee::class)->handle($this->actor(), $this->contract, $this->checklistId, $party, false), __('Party removed from the checklist.'));
     }
 
     public function toggle(string $itemId): void
@@ -72,7 +120,10 @@ new class extends Component {
 
     public function render()
     {
-        unset($this->checklist, $this->canTick);
+        unset($this->checklist, $this->canTick, $this->canAssign, $this->assignable);
+        if (! $this->assignable->contains('id', $this->assignPartyId)) {
+            $this->assignPartyId = $this->assignable->first()?->id;
+        }
 
         return $this->view();
     }
@@ -101,13 +152,38 @@ new class extends Component {
                 @unless ($contract->isOpen())
                     <flux:text size="sm">{{ __('The contract is marked :status, so the checklist is read-only.', ['status' => strtolower(__($contract->status->label()))]) }}</flux:text>
                 @endunless
+                @if ($this->checklist->assignedParties->isNotEmpty() || $this->canAssign)
+                    <div class="flex flex-wrap items-center gap-2" data-test="checklist-assignees">
+                        <flux:text size="sm">{{ __('Assigned:') }}</flux:text>
+                        @forelse ($this->checklist->assignedParties as $assignee)
+                            <flux:badge size="sm" wire:key="assignee-{{ $assignee->id }}">
+                                {{ $assignee->name }}
+                                @if ($this->canAssign)
+                                    <flux:badge.close wire:click="unassign('{{ $assignee->id }}')" :aria-label="__('Remove :party', ['party' => $assignee->name])" />
+                                @endif
+                            </flux:badge>
+                        @empty
+                            <flux:text size="sm">{{ __('nobody yet; assigned parties tick items whatever their role') }}</flux:text>
+                        @endforelse
+                        @if ($this->canAssign && $this->assignable->isNotEmpty())
+                            <form wire:submit="assign" class="flex items-center gap-2">
+                                <flux:select wire:model="assignPartyId" size="sm" class="max-w-56" :aria-label="__('Party to assign')">
+                                    @foreach ($this->assignable as $party)
+                                        <flux:select.option :value="$party->id">{{ $party->name }}</flux:select.option>
+                                    @endforeach
+                                </flux:select>
+                                <flux:button type="submit" size="sm">{{ __('Assign') }}</flux:button>
+                            </form>
+                        @endif
+                    </div>
+                @endif
             </div>
 
             @foreach ($this->checklist->stages as $stage)
                 @php($stageDone = $stage->items->whereNotNull('checked_at')->count())
                 <section class="space-y-1" wire:key="stage-{{ $stage->id }}" data-test="checklist-stage">
                     <div class="flex items-center justify-between gap-3 border-b border-zinc-200 pb-1 dark:border-zinc-700">
-                        <h3 class="font-semibold">{{ $stage->position }}. {{ $stage->title }}</h3>
+                        <h3 class="font-semibold">{{ $stage->heading() }}</h3>
                         <flux:badge size="sm" :color="$stage->items->isNotEmpty() && $stageDone === $stage->items->count() ? 'green' : 'zinc'">{{ $stageDone }}/{{ $stage->items->count() }}</flux:badge>
                     </div>
 
