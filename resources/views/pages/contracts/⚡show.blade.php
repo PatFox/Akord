@@ -34,6 +34,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 use Livewire\Attributes\Url;
 use Livewire\Component;
@@ -74,11 +75,27 @@ new class extends Component {
     #[Url(as: 'show', except: 'all')]
     public string $show = 'all';
 
+    /**
+     * Where "OK" goes after someone else deletes this contract: the project, or the dashboard for people who would no
+     * longer see the project (no other contract of theirs in it). Worked out when the page opens.
+     */
+    #[Locked]
+    public string $afterDeleteUrl = '';
+
     public function mount(Contract $contract): void
     {
         Gate::authorize('view', $contract);
         $this->contract = $contract;
         $this->initialiseActingParty();
+
+        $project = $contract->project;
+        $seesProjectAfterwards = $this->isOwner || Contract::query()->visibleTo(Auth::user())
+            ->where('project_id', $project->id)
+            ->whereNotIn('id', $contract->versions()->pluck('id'))
+            ->exists();
+        $this->afterDeleteUrl = $seesProjectAfterwards
+            ? route('projects.show', ['organisation' => $project->organisation, 'project' => $project])
+            : route('dashboard');
     }
 
     #[Computed]
@@ -283,10 +300,19 @@ new class extends Component {
      * Live update from someone's change (Phase 5). The page re-renders and tells the step concerned (or every step)
      * to refresh. If the contract's fingerprint moved away from what this person reviewed because of someone else's
      * change, Sign off waits until they acknowledge it.
+     *
+     * Livewire can send this in the same request as deleteContract (a broadcast arriving as Delete is clicked), after
+     * it: the contract is gone then, so leave for the project instead of failing the whole request with a 404.
      */
     #[On('echo-private:contract.{contract.id},.activity')]
     public function onActivity(array $event): void
     {
+        if (! Contract::query()->whereKey($this->contract->id)->exists()) {
+            $this->leaveDeletedContract();
+
+            return;
+        }
+
         $this->contract->refresh();
         unset($this->report);
 
@@ -409,7 +435,6 @@ new class extends Component {
 
     public function deleteContract(): void
     {
-        $project = $this->contract->project;
         $deleted = $this->attempt(function (): bool {
             app(DeleteContract::class)->handle($this->actor(), $this->contract);
 
@@ -417,10 +442,18 @@ new class extends Component {
         });
 
         if ($deleted === true) {
-            // The contract is gone, so render() could not reload it.
-            $this->skipRender();
-            $this->redirectRoute('projects.show', ['organisation' => $project->organisation, 'project' => $project], navigate: true);
+            $this->leaveDeletedContract();
         }
+    }
+
+    /**
+     * To the project page; render() could not reload the contract any more.
+     */
+    private function leaveDeletedContract(): void
+    {
+        $project = $this->contract->project;
+        $this->skipRender();
+        $this->redirectRoute('projects.show', ['organisation' => $project->organisation, 'project' => $project], navigate: true);
     }
 
     public function setStatus(string $status): void
@@ -980,4 +1013,29 @@ new class extends Component {
         @endif
     </flux:card>
     @endif
+
+    {{-- Someone else deleted the contract (D19): ContractDeleted on this version's channel, or, when that was missed,
+         a Livewire request answered 404 (resources/js/contract-deleted.js). Outside Livewire's morphing. --}}
+    <div wire:ignore data-contract-deleted
+         x-data="{
+             channel: @js('contract.'.$contract->id),
+             onDeleted: null,
+             show() { $flux.modal('contract-deleted').show() },
+             init() {
+                 this.onDeleted = () => this.show();
+                 window.Echo?.private(this.channel).listen('.deleted', this.onDeleted);
+             },
+             destroy() { window.Echo?.private(this.channel).stopListening('.deleted', this.onDeleted) },
+         }"
+         x-on:akord-contract-gone.window="show()">
+        <flux:modal name="contract-deleted" class="max-w-md" :dismissible="false" :escapable="false" :closable="false">
+            <div class="space-y-4" data-test="contract-deleted-dialog">
+                <flux:heading size="lg">{{ __('This contract has been deleted') }}</flux:heading>
+                <flux:text>{{ __('An owner deleted :title while you had it open. Its steps, comments, approvals and checklists are gone.', ['title' => $contract->title]) }}</flux:text>
+                <div class="flex justify-end">
+                    <flux:button variant="primary" x-on:click="window.location.assign(@js($afterDeleteUrl))">{{ __('OK') }}</flux:button>
+                </div>
+            </div>
+        </flux:modal>
+    </div>
 </section>

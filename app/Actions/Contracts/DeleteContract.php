@@ -4,6 +4,7 @@ namespace App\Actions\Contracts;
 
 use App\Enums\ContractAbility;
 use App\Enums\ContractStatus;
+use App\Events\ContractDeleted;
 use App\Exceptions\InvalidActionException;
 use App\Models\ActivityEvent;
 use App\Models\Approval;
@@ -24,7 +25,8 @@ use Illuminate\Support\Facades\DB;
  * Owner-only (D19): deletes a contract whose latest version is cancelled, every version of it, with everything
  * recorded on them: phases, steps, revisions, comments, approvals, sign-offs, invitations, checklists, activity and
  * the in-app notifications about it. Parties, projects and people stay. Nothing records the deletion, since the
- * contract's activity goes with it.
+ * contract's activity goes with it; once committed, ContractDeleted tells pages still open on a version (other than the
+ * deleting tab) that it is gone.
  *
  * Runs outside ContractTransaction, which records readiness changes on the contract after the work; it follows the
  * same lock order (the given version's row first), then locks the older versions so nothing is added to them meanwhile.
@@ -35,7 +37,8 @@ final class DeleteContract
 {
     public function handle(Actor $actor, Contract $contract): void
     {
-        DB::transaction(function () use ($actor, $contract): void {
+        /** @var list<string> $versionIds */
+        $versionIds = DB::transaction(function () use ($actor, $contract): array {
             $locked = Contract::query()->lockForUpdate()->whereKey($contract->getKey())->firstOrFail();
 
             ContractAccess::authorize($actor, $locked, ContractAbility::Administer);
@@ -49,13 +52,17 @@ final class DeleteContract
             }
 
             // Newest first: later versions' steps point at the first version's (origin), and each version at the one before.
-            $versionIds = $locked->versions()->reverse()->pluck('id');
+            $versionIds = $locked->versions()->reverse()->map(fn (Contract $version): string => $version->id)->values();
             Contract::query()->lockForUpdate()->whereKey($versionIds->slice(1)->all())->get();
 
             foreach ($versionIds as $versionId) {
                 $this->deleteVersion($versionId);
             }
+
+            return $versionIds->values()->all();
         }, 3);
+
+        broadcast(new ContractDeleted($versionIds))->toOthers();
     }
 
     private function deleteVersion(string $contractId): void

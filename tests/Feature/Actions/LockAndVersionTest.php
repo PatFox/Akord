@@ -27,6 +27,7 @@ use App\Enums\CommentKind;
 use App\Enums\ContractRole;
 use App\Enums\ContractState;
 use App\Enums\ContractStatus;
+use App\Events\ContractDeleted;
 use App\Models\ActivityEvent;
 use App\Models\Approval;
 use App\Models\Comment;
@@ -39,6 +40,7 @@ use App\Models\StepRevision;
 use App\Support\Actor;
 use Illuminate\Notifications\DatabaseNotification;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Mail;
 use Tests\Support\Scenario;
 
@@ -217,7 +219,13 @@ test('an owner deletes a cancelled contract with every version and everything re
     expect($notifications())->toBeGreaterThan(0)
         ->and(DB::table('checklist_party')->count())->toBe(1);
 
+    Event::fake([ContractDeleted::class]);
     app(DeleteContract::class)->handle($this->s->ownerActor(), $next);
+
+    // Pages still open on either version are told, once, after the rows are gone.
+    Event::assertDispatchedTimes(ContractDeleted::class, 1);
+    Event::assertDispatched(ContractDeleted::class, fn (ContractDeleted $event) => $event->contractIds === [$next->id, $this->s->contract->id]
+        && array_map(fn ($channel) => $channel->name, $event->broadcastOn()) === ['private-contract.'.$next->id, 'private-contract.'.$this->s->contract->id]);
 
     expect(Contract::query()->whereKey($contractIds)->count())->toBe(0)
         ->and(DB::table('contract_party')->whereIn('contract_id', $contractIds)->count())->toBe(0)

@@ -23,6 +23,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\On;
+use Livewire\Attributes\Url;
 use Livewire\Component;
 
 /*
@@ -39,6 +40,10 @@ new class extends Component {
     public string $checklistId;
 
     public ?string $assignPartyId = null;
+
+    /** Which items to list: "all", or "open" (not ticked yet); ?items= in the URL, like the steps filter (?show=). */
+    #[Url(as: 'items', except: 'all')]
+    public string $itemFilter = 'all';
 
     /** The item open in the inline editor, if any. */
     public ?string $editingItemId = null;
@@ -321,6 +326,9 @@ new class extends Component {
     public function render()
     {
         unset($this->checklist, $this->canTick, $this->canAssign, $this->canEdit, $this->assignable, $this->stepOptions);
+        if (! in_array($this->itemFilter, ['all', 'open'], true)) {
+            $this->itemFilter = 'all';
+        }
         // The item being edited may have been deleted by someone else.
         if ($this->editingItemId !== null && $this->stageOf($this->editingItemId) === null) {
             $this->cancelEditItem();
@@ -350,9 +358,15 @@ new class extends Component {
                         <flux:heading size="lg" level="2" class="wrap-anywhere" data-test="checklist-name">{{ $this->checklist->name }}</flux:heading>
                         <flux:text size="sm">{{ __(':done of :total done', ['done' => $done, 'total' => $items->count()]) }}</flux:text>
                     </div>
-                    <flux:text size="sm">
-                        {{ __('Written by :who, :when', ['who' => $this->checklist->createdByUser?->name ?? $this->checklist->createdByParty->name, 'when' => $this->checklist->created_at?->diffForHumans()]) }}
-                    </flux:text>
+                    <div class="flex flex-col items-end gap-2">
+                        <flux:radio.group wire:model.live="itemFilter" variant="segmented" size="sm" data-test="item-filter">
+                            <flux:radio value="all" :label="__('All')" />
+                            <flux:radio value="open" :label="__('Not ticked')" />
+                        </flux:radio.group>
+                        <flux:text size="sm">
+                            {{ __('Written by :who, :when', ['who' => $this->checklist->createdByUser?->name ?? $this->checklist->createdByParty->name, 'when' => $this->checklist->created_at?->diffForHumans()]) }}
+                        </flux:text>
+                    </div>
                 </div>
                 <div class="h-2 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-700" role="progressbar" aria-valuemin="0" aria-valuemax="{{ $items->count() }}" aria-valuenow="{{ $done }}">
                     <div class="h-full rounded-full bg-green-500" style="width: {{ $items->isEmpty() ? 0 : round(100 * $done / $items->count()) }}%"></div>
@@ -387,7 +401,14 @@ new class extends Component {
                 @endif
             </div>
 
+            @if ($itemFilter === 'open' && $done === $items->count())
+                <flux:text size="sm" data-test="item-filter-empty">{{ __('Every item is ticked.') }}</flux:text>
+            @endif
+
             @foreach ($this->checklist->stages as $stage)
+                {{-- Moving up and down is off while filtering, since positions count the hidden items too. --}}
+                @php($filtering = $itemFilter === 'open')
+                @php($shownItems = $filtering ? $stage->items->whereNull('checked_at')->values() : $stage->items)
                 @php($stageDone = $stage->items->whereNotNull('checked_at')->count())
                 <section class="space-y-1" wire:key="stage-{{ $stage->id }}" data-test="checklist-stage">
                     <div class="flex items-center justify-between gap-3 border-b border-zinc-200 pb-1 dark:border-zinc-700">
@@ -395,7 +416,7 @@ new class extends Component {
                         <flux:badge size="sm" :color="$stage->items->isNotEmpty() && $stageDone === $stage->items->count() ? 'green' : 'zinc'">{{ $stageDone }}/{{ $stage->items->count() }}</flux:badge>
                     </div>
 
-                    @forelse ($stage->items as $item)
+                    @forelse ($shownItems as $item)
                         <div class="flex items-start gap-3 py-1.5" wire:key="item-{{ $item->id }}" data-test="checklist-item">
                             <input type="checkbox" class="mt-1 size-4 shrink-0 accent-green-600 disabled:opacity-60"
                                    @checked($item->isChecked()) @disabled(! $this->canTick)
@@ -440,8 +461,10 @@ new class extends Component {
                                         <flux:button size="xs" variant="ghost" icon="ellipsis-horizontal" :aria-label="__('Item actions')" data-test="item-actions" />
                                         <flux:menu>
                                             <flux:menu.item icon="pencil" wire:click="editItem('{{ $item->id }}')">{{ __('Edit') }}</flux:menu.item>
-                                            <flux:menu.item icon="chevron-up" wire:click="moveItem('{{ $item->id }}', -1)" :disabled="$loop->first">{{ __('Move up') }}</flux:menu.item>
-                                            <flux:menu.item icon="chevron-down" wire:click="moveItem('{{ $item->id }}', 1)" :disabled="$loop->last">{{ __('Move down') }}</flux:menu.item>
+                                            @unless ($filtering)
+                                                <flux:menu.item icon="chevron-up" wire:click="moveItem('{{ $item->id }}', -1)" :disabled="$loop->first">{{ __('Move up') }}</flux:menu.item>
+                                                <flux:menu.item icon="chevron-down" wire:click="moveItem('{{ $item->id }}', 1)" :disabled="$loop->last">{{ __('Move down') }}</flux:menu.item>
+                                            @endunless
                                             @if ($this->checklist->stages->count() > 1)
                                                 <flux:menu.submenu icon="arrow-right" :heading="__('Move to stage')">
                                                     @foreach ($this->checklist->stages as $otherStage)
@@ -459,7 +482,7 @@ new class extends Component {
                             @endif
                         </div>
                     @empty
-                        <flux:text size="sm" class="py-1">{{ __('No items.') }}</flux:text>
+                        <flux:text size="sm" class="py-1">{{ $filtering && $stage->items->isNotEmpty() ? __('All ticked.') : __('No items.') }}</flux:text>
                     @endforelse
 
                     @if ($this->canEdit)

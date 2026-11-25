@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Comments\AddComment;
+use App\Actions\Contracts\SetContractStatus;
 use App\Actions\Contracts\SignOffContract;
 use App\Actions\Phases\CreatePhase;
 use App\Actions\Steps\ReviseStep;
@@ -214,6 +215,43 @@ test('an owner deletes a cancelled contract from its page and lands on the proje
         ->assertRedirect(route('projects.show', ['organisation' => $project->organisation, 'project' => $project]));
 
     expect(Contract::query()->whereKey($this->s->contract->id)->exists())->toBeFalse();
+});
+
+test('a live update sent in the same request as the delete, after it, still lands on the project', function () {
+    $this->s->step('Visible step');
+    app(SetContractStatus::class)->handle($this->s->alpha, $this->s->contract, ContractStatus::Cancelled);
+    $statusChanged = $this->s->contract->activityEvents()->where('type', 'contract.status_changed')->sole();
+    $project = $this->s->contract->project;
+
+    // Livewire bundles a broadcast's onActivity with the click that is already queued.
+    $this->actingAs($this->s->owner);
+    Livewire::test('pages::contracts.show', ['contract' => $this->s->contract])
+        ->update(calls: [
+            ['method' => 'deleteContract', 'params' => [], 'metadata' => []],
+            ['method' => 'onActivity', 'params' => [['id' => $statusChanged->id, 'type' => 'contract.status_changed']], 'metadata' => []],
+        ])
+        ->assertRedirect(route('projects.show', ['organisation' => $project->organisation, 'project' => $project]));
+
+    expect(Contract::query()->whereKey($this->s->contract->id)->exists())->toBeFalse();
+});
+
+test('the page carries the deleted-contract dialog; OK leads to the project, or to the dashboard for someone who would no longer see it', function () {
+    $project = $this->s->contract->project;
+    $projectUrl = route('projects.show', ['organisation' => $project->organisation, 'project' => $project]);
+    $viewer = $this->s->party(ContractRole::Viewer);
+    $page = function ($user) {
+        $this->actingAs($user);
+
+        return Livewire::test('pages::contracts.show', ['contract' => $this->s->contract]);
+    };
+
+    $page($this->s->owner)->assertSet('afterDeleteUrl', $projectUrl)->assertSeeHtml('data-test="contract-deleted-dialog"');
+    $page($viewer->user)->assertSet('afterDeleteUrl', route('dashboard'));
+
+    // With another contract of theirs in the project, the viewer still sees the project afterwards.
+    $other = Contract::factory()->for($project)->create();
+    $other->parties()->attach($viewer->party, ['role' => ContractRole::Viewer->value]);
+    $page($viewer->user)->assertSet('afterDeleteUrl', $projectUrl);
 });
 
 test('an agreed contract continues as a new version from its page; the version menu lists only versions the user can see', function () {

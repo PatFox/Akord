@@ -372,3 +372,26 @@ test('editors add items at the end of a stage from the checklist tab, several in
     app(SetContractStatus::class)->handle($this->s->alpha, $this->s->contract, ContractStatus::Complete);
     $page->call('$refresh')->assertSet('addingToStageId', null)->assertDontSeeHtml('data-test="add-item"');
 });
+
+test('the checklist tab hides ticked items on request, keeping stages and counts; moving up and down is off meanwhile', function () {
+    $checklist = app(CreateChecklist::class)->handle($this->s->alpha, $this->s->contract, 'API team', [
+        ['title' => 'Build', 'items' => [['title' => 'Routes'], ['title' => 'Tests']]],
+        ['title' => 'Ship', 'items' => [['title' => 'Deploy']]],
+    ]);
+    $tick = fn (string $title) => app(SetChecklistItemChecked::class)->handle($this->s->alpha, $this->s->contract, ChecklistItem::query()->where('title', $title)->sole()->id, true);
+    $tick('Routes');
+    $tick('Deploy');
+
+    $this->actingAs($this->s->alpha->user);
+    $page = Livewire::test('pages::contracts.checklist', ['contract' => $this->s->contract, 'checklistId' => $checklist->id])
+        ->assertSeeInOrder(['Routes', 'Tests', 'Deploy'])->assertSee('Move up')
+        ->set('itemFilter', 'open')
+        ->assertSee('Tests')->assertDontSee('Routes')->assertDontSee('Deploy')
+        ->assertSeeInOrder(['2 of 3 done', 'Build', 'Tests', 'Ship', 'All ticked.'])
+        ->assertDontSee('Move up')->assertDontSeeHtml('data-test="item-filter-empty"');
+
+    // Ticking the last open item leaves an empty list with a note; an unknown value falls back to all.
+    $page->call('toggle', ChecklistItem::query()->where('title', 'Tests')->sole()->id)
+        ->assertDontSee('Tests')->assertSeeHtml('data-test="item-filter-empty"')
+        ->set('itemFilter', 'bogus')->assertSet('itemFilter', 'all')->assertSee('Routes');
+});
