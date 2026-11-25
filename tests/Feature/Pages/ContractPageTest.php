@@ -200,6 +200,22 @@ test('editors close and reopen the contract from its page, and while closed it i
         ->call('setStatus', 'open')->assertDontSee('Marked complete')->assertSee('Add step');
 });
 
+test('an owner deletes a cancelled contract from its page and lands on the project; editors see no delete button', function () {
+    $this->s->step('Visible step');
+    $project = $this->s->contract->project;
+
+    contractPage($this->s, $this->s->alpha)->assertDontSee('Delete contract')
+        ->call('setStatus', 'cancelled')->assertSee('Marked cancelled')->assertDontSee('Delete contract');
+
+    $this->actingAs($this->s->owner);
+    Livewire::test('pages::contracts.show', ['contract' => $this->s->contract])
+        ->assertSee('Delete contract')
+        ->call('deleteContract')
+        ->assertRedirect(route('projects.show', ['organisation' => $project->organisation, 'project' => $project]));
+
+    expect(Contract::query()->whereKey($this->s->contract->id)->exists())->toBeFalse();
+});
+
 test('an agreed contract continues as a new version from its page; the version menu lists only versions the user can see', function () {
     $this->s->approveAll($this->s->step());
     $fingerprint = $this->s->readiness()->fingerprint;

@@ -3,13 +3,14 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Actions\Checklists\ChecklistInput;
+use App\Actions\Checklists\UpdateChecklistItem;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 /**
  * A contract version's working checklists (several, each named). Writes need the 'edit' ability and an editor party;
  * ticking and unticking also work for a party assigned to the checklist, whatever its role (D18). They work on agreed
- * versions, and are 423 on complete or cancelled ones.
+ * versions, and are 423 on complete or cancelled ones. Items can be added, changed, moved and deleted.
  */
 class ChecklistController extends AgentApiController
 {
@@ -41,6 +42,38 @@ class ChecklistController extends AgentApiController
         $v = $request->validate(ChecklistInput::itemRules());
 
         return $this->respond($this->api->addChecklistItem($this->actor($request), $contract, $stage, $v['title'], $v['notes'] ?? null, $v['step_id'] ?? null), 201);
+    }
+
+    /**
+     * PATCH /api/v1/contracts/{id}/checklists/items/{item} {title?, notes?, step_id?}: only the fields given change;
+     * null notes or step_id clear them. The tick stays.
+     */
+    public function updateItem(Request $request, string $contract, string $item): JsonResponse
+    {
+        $rules = ChecklistInput::itemRules();
+        $rules['title'] = ['sometimes', ...$rules['title']];
+        $v = $request->validate($rules);
+
+        return $this->respond($this->api->updateChecklistItem($this->actor($request), $contract, $item, array_intersect_key($v, array_flip(UpdateChecklistItem::FIELDS))));
+    }
+
+    /**
+     * DELETE /api/v1/contracts/{id}/checklists/items/{item}: ticked or not; cannot be undone.
+     */
+    public function destroyItem(Request $request, string $contract, string $item): JsonResponse
+    {
+        return $this->respond($this->api->deleteChecklistItem($this->actor($request), $contract, $item));
+    }
+
+    /**
+     * POST /api/v1/contracts/{id}/checklists/items/{item}/move {stage_id?, after_item_id?}
+     * stage_id omitted: same stage (any stage of the same checklist). after_item_id omitted: end of the stage; "start": start.
+     */
+    public function moveItem(Request $request, string $contract, string $item): JsonResponse
+    {
+        $v = $request->validate(['stage_id' => ['nullable', 'string'], 'after_item_id' => ['nullable', 'string']]);
+
+        return $this->respond($this->api->moveChecklistItem($this->actor($request), $contract, $item, $v['stage_id'] ?? null, $v['after_item_id'] ?? null));
     }
 
     /**

@@ -1,14 +1,23 @@
 <?php
 
+use App\Actions\Checklists\AddChecklistItem;
+use App\Actions\Checklists\DeleteChecklistItem;
+use App\Actions\Checklists\MoveChecklistItem;
 use App\Actions\Checklists\SetChecklistAssignee;
 use App\Actions\Checklists\SetChecklistItemChecked;
+use App\Actions\Checklists\UpdateChecklistItem;
+use App\Enums\ContractAbility;
 use App\Livewire\Concerns\ActsOnContract;
 use App\Livewire\Concerns\RunsActions;
 use App\Models\Checklist;
 use App\Models\ChecklistItem;
+use App\Models\ChecklistStage;
 use App\Models\Contract;
 use App\Models\ContractParty;
 use App\Models\Party;
+use App\Models\Phase;
+use App\Models\Step;
+use App\Support\ChecklistItemOrder;
 use App\Support\ContractAccess;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
@@ -19,7 +28,8 @@ use Livewire\Component;
 /*
  * One of the contract page's Checklist tabs: a named working checklist, ticked off as the work is done. Agents write
  * them (create_checklist); people and agents who may edit tick items, and so do the parties an owner assigns to the
- * checklist whatever their role (D18), also after agreement, until the contract is complete or cancelled.
+ * checklist whatever their role (D18), also after agreement, until the contract is complete or cancelled. Whoever may
+ * edit also changes, reorders, moves and deletes items here.
  */
 new class extends Component {
     use ActsOnContract, RunsActions;
@@ -29,6 +39,26 @@ new class extends Component {
     public string $checklistId;
 
     public ?string $assignPartyId = null;
+
+    /** The item open in the inline editor, if any. */
+    public ?string $editingItemId = null;
+
+    public string $itemTitle = '';
+
+    public string $itemNotes = '';
+
+    /** '' for no linked step. */
+    public string $itemStepId = '';
+
+    /** The stage whose "Add item" form is open, if any; the form stays open to add several in a row. */
+    public ?string $addingToStageId = null;
+
+    public string $newItemTitle = '';
+
+    public string $newItemNotes = '';
+
+    /** '' for no linked step. */
+    public string $newItemStepId = '';
 
     public function mount(Contract $contract, string $checklistId): void
     {
@@ -62,6 +92,27 @@ new class extends Component {
     public function canAssign(): bool
     {
         return $this->isOwner && $this->contract->isOpen();
+    }
+
+    #[Computed]
+    public function canEdit(): bool
+    {
+        return $this->checklist !== null && $this->contract->isOpen() && $this->allows(ContractAbility::Edit);
+    }
+
+    /**
+     * The version's active steps, in contract order, for an item's step link.
+     *
+     * @return Collection<int, Step>
+     */
+    #[Computed]
+    public function stepOptions(): Collection
+    {
+        return $this->contract->phases()
+            ->with(['steps' => fn ($steps) => $steps->active()->with('currentRevision')])
+            ->get()
+            ->flatMap(fn (Phase $phase) => $phase->steps)
+            ->values();
     }
 
     /**
@@ -111,6 +162,155 @@ new class extends Component {
         }
     }
 
+    public function editItem(string $itemId): void
+    {
+        $item = $this->stageOf($itemId)?->items->firstWhere('id', $itemId);
+        if ($item === null) {
+            $this->refused(__('That item no longer exists.'), 404);
+
+            return;
+        }
+
+        $this->resetValidation();
+        $this->editingItemId = $item->id;
+        $this->itemTitle = $item->title;
+        $this->itemNotes = (string) $item->notes;
+        $this->itemStepId = (string) $item->step_id;
+    }
+
+    public function startAddingItem(string $stageId): void
+    {
+        $this->cancelAddItem();
+        $this->addingToStageId = $stageId;
+    }
+
+    public function cancelAddItem(): void
+    {
+        $this->reset('addingToStageId', 'newItemTitle', 'newItemNotes', 'newItemStepId');
+        $this->resetValidation();
+    }
+
+    /**
+     * Adds the item at the end of the stage, then clears the form for the next one.
+     */
+    public function addItem(): void
+    {
+        if ($this->addingToStageId === null) {
+            return;
+        }
+
+        $this->validate([
+            'newItemTitle' => ['required', 'string', 'max:300'],
+            'newItemNotes' => ['nullable', 'string', 'max:5000'],
+            'newItemStepId' => ['nullable', 'string'],
+        ], attributes: ['newItemTitle' => __('title'), 'newItemNotes' => __('notes')]);
+
+        $stageId = $this->addingToStageId;
+        $added = $this->attempt(fn () => app(AddChecklistItem::class)->handle(
+            $this->actor(), $this->contract, $stageId, trim($this->newItemTitle), $this->newItemNotes, $this->newItemStepId,
+        ), __('Item added.'));
+
+        if ($added !== null) {
+            $this->reset('newItemTitle', 'newItemNotes', 'newItemStepId');
+            $this->dispatch('checklist-updated');
+        }
+    }
+
+    public function cancelEditItem(): void
+    {
+        $this->reset('editingItemId', 'itemTitle', 'itemNotes', 'itemStepId');
+        $this->resetValidation();
+    }
+
+    /**
+     * The action changes only what differs, and empty notes or step clear them. The step goes only when it changed,
+     * so an item still linked to a step archived since can be saved.
+     */
+    public function saveItem(): void
+    {
+        if ($this->editingItemId === null) {
+            return;
+        }
+
+        $this->validate([
+            'itemTitle' => ['required', 'string', 'max:300'],
+            'itemNotes' => ['nullable', 'string', 'max:5000'],
+            'itemStepId' => ['nullable', 'string'],
+        ], attributes: ['itemTitle' => __('title'), 'itemNotes' => __('notes')]);
+
+        $itemId = $this->editingItemId;
+        $item = $this->stageOf($itemId)?->items->firstWhere('id', $itemId);
+        $changes = ['title' => trim($this->itemTitle), 'notes' => $this->itemNotes];
+        if ($this->itemStepId !== (string) $item?->step_id) {
+            $changes['step_id'] = $this->itemStepId;
+        }
+
+        $saved = $this->attempt(fn () => app(UpdateChecklistItem::class)->handle($this->actor(), $this->contract, $itemId, $changes), __('Item saved.'));
+
+        if ($saved !== null) {
+            $this->cancelEditItem();
+            $this->dispatch('checklist-updated');
+        }
+    }
+
+    /**
+     * One place up (-1) or down (1) within the item's stage.
+     */
+    public function moveItem(string $itemId, int $offset): void
+    {
+        $siblings = $this->stageOf($itemId)?->items->modelKeys() ?? [];
+        $index = array_search($itemId, $siblings, true);
+        if ($index === false) {
+            $this->refused(__('That item no longer exists.'), 404);
+
+            return;
+        }
+
+        $target = $index + ($offset < 0 ? -1 : 1);
+        if ($target < 0 || $target >= count($siblings)) {
+            return;
+        }
+
+        $others = array_values(array_diff($siblings, [$itemId]));
+        $this->move($itemId, null, $target === 0 ? ChecklistItemOrder::START : $others[$target - 1]);
+    }
+
+    /**
+     * To the end of another stage of this checklist.
+     */
+    public function moveItemTo(string $itemId, string $stageId): void
+    {
+        $this->move($itemId, $stageId, null);
+    }
+
+    public function deleteItem(string $itemId): void
+    {
+        $deleted = $this->attempt(function () use ($itemId): bool {
+            app(DeleteChecklistItem::class)->handle($this->actor(), $this->contract, $itemId);
+
+            return true;
+        }, __('Item deleted.'));
+
+        if ($deleted === true) {
+            if ($this->editingItemId === $itemId) {
+                $this->cancelEditItem();
+            }
+            $this->dispatch('checklist-updated');
+        }
+    }
+
+    private function move(string $itemId, ?string $stageId, ?string $afterItemId): void
+    {
+        if ($this->attempt(fn () => app(MoveChecklistItem::class)->handle($this->actor(), $this->contract, $itemId, $stageId, $afterItemId)) !== null) {
+            $this->dispatch('checklist-updated');
+        }
+    }
+
+    private function stageOf(string $itemId): ?ChecklistStage
+    {
+        return $this->checklist?->stages->first(fn (ChecklistStage $stage) => $stage->items->contains('id', $itemId));
+    }
+
     /**
      * Someone ticked, added or replaced (checklist-refresh), or the status changed (steps-refresh).
      */
@@ -120,7 +320,15 @@ new class extends Component {
 
     public function render()
     {
-        unset($this->checklist, $this->canTick, $this->canAssign, $this->assignable);
+        unset($this->checklist, $this->canTick, $this->canAssign, $this->canEdit, $this->assignable, $this->stepOptions);
+        // The item being edited may have been deleted by someone else.
+        if ($this->editingItemId !== null && $this->stageOf($this->editingItemId) === null) {
+            $this->cancelEditItem();
+        }
+        // So may the stage being added to (the checklist was replaced), and nobody may edit a closed version.
+        if ($this->addingToStageId !== null && ! ($this->canEdit && $this->checklist?->stages->contains('id', $this->addingToStageId))) {
+            $this->cancelAddItem();
+        }
         if (! $this->assignable->contains('id', $this->assignPartyId)) {
             $this->assignPartyId = $this->assignable->first()?->id;
         }
@@ -192,26 +400,88 @@ new class extends Component {
                             <input type="checkbox" class="mt-1 size-4 shrink-0 accent-green-600 disabled:opacity-60"
                                    @checked($item->isChecked()) @disabled(! $this->canTick)
                                    wire:click="toggle('{{ $item->id }}')" aria-label="{{ $item->title }}">
-                            <div class="min-w-0 flex-1 space-y-1">
-                                <div @class(['text-sm wrap-anywhere', 'text-zinc-500 line-through' => $item->isChecked()])>{{ $item->title }}</div>
-                                @if ($item->notes)
-                                    <x-markdown :source="$item->notes" class="text-zinc-600 dark:text-zinc-300" />
+                            @if ($editingItemId === $item->id)
+                                <form wire:submit="saveItem" class="min-w-0 flex-1 space-y-3" data-test="item-editor">
+                                    <flux:input wire:model="itemTitle" :label="__('Title')" />
+                                    <flux:textarea wire:model="itemNotes" :label="__('Notes (Markdown, optional)')" rows="3" />
+                                    <flux:select wire:model="itemStepId" :label="__('Contract step')">
+                                        <flux:select.option value="">{{ __('No step') }}</flux:select.option>
+                                        @foreach ($this->stepOptions as $option)
+                                            <flux:select.option :value="$option->id">{{ $option->currentRevision?->title }}</flux:select.option>
+                                        @endforeach
+                                        @if ($item->step && ! $this->stepOptions->contains('id', $item->step_id))
+                                            <flux:select.option :value="$item->step_id">{{ __(':title (archived)', ['title' => $item->step->currentRevision?->title]) }}</flux:select.option>
+                                        @endif
+                                    </flux:select>
+                                    <div class="flex gap-2">
+                                        <flux:button size="sm" type="submit" variant="primary">{{ __('Save') }}</flux:button>
+                                        <flux:button size="sm" variant="ghost" wire:click="cancelEditItem">{{ __('Cancel') }}</flux:button>
+                                    </div>
+                                </form>
+                            @else
+                                <div class="min-w-0 flex-1 space-y-1">
+                                    <div @class(['text-sm wrap-anywhere', 'text-zinc-500 line-through' => $item->isChecked()])>{{ $item->title }}</div>
+                                    @if ($item->notes)
+                                        <x-markdown :source="$item->notes" class="text-zinc-600 dark:text-zinc-300" />
+                                    @endif
+                                    <flux:text size="xs" class="flex flex-wrap gap-x-3">
+                                        @if ($item->step)
+                                            <a href="{{ route('contracts.show', $contract) }}#step-{{ $item->step_id }}" class="underline decoration-dotted underline-offset-2 hover:text-zinc-800 dark:hover:text-zinc-200">
+                                                {{ __('Step: :title', ['title' => $item->step->currentRevision?->title]) }}
+                                            </a>
+                                        @endif
+                                        @if ($item->isChecked())
+                                            <span>{{ __('Ticked by :who, :when', ['who' => $item->checkedByUser?->name ?? $item->checkedByParty?->name ?? __('someone'), 'when' => $item->checked_at?->diffForHumans()]) }}</span>
+                                        @endif
+                                    </flux:text>
+                                </div>
+                                @if ($this->canEdit)
+                                    <flux:dropdown align="end">
+                                        <flux:button size="xs" variant="ghost" icon="ellipsis-horizontal" :aria-label="__('Item actions')" data-test="item-actions" />
+                                        <flux:menu>
+                                            <flux:menu.item icon="pencil" wire:click="editItem('{{ $item->id }}')">{{ __('Edit') }}</flux:menu.item>
+                                            <flux:menu.item icon="chevron-up" wire:click="moveItem('{{ $item->id }}', -1)" :disabled="$loop->first">{{ __('Move up') }}</flux:menu.item>
+                                            <flux:menu.item icon="chevron-down" wire:click="moveItem('{{ $item->id }}', 1)" :disabled="$loop->last">{{ __('Move down') }}</flux:menu.item>
+                                            @if ($this->checklist->stages->count() > 1)
+                                                <flux:menu.submenu icon="arrow-right" :heading="__('Move to stage')">
+                                                    @foreach ($this->checklist->stages as $otherStage)
+                                                        @continue($otherStage->id === $stage->id)
+                                                        <flux:menu.item wire:click="moveItemTo('{{ $item->id }}', '{{ $otherStage->id }}')">{{ $otherStage->heading() }}</flux:menu.item>
+                                                    @endforeach
+                                                </flux:menu.submenu>
+                                            @endif
+                                            <flux:menu.separator />
+                                            <flux:menu.item icon="trash" variant="danger" wire:click="deleteItem('{{ $item->id }}')"
+                                                            wire:confirm="{{ $item->isChecked() ? __('Delete this ticked item? This cannot be undone.') : __('Delete this item? This cannot be undone.') }}">{{ __('Delete') }}</flux:menu.item>
+                                        </flux:menu>
+                                    </flux:dropdown>
                                 @endif
-                                <flux:text size="xs" class="flex flex-wrap gap-x-3">
-                                    @if ($item->step)
-                                        <a href="{{ route('contracts.show', $contract) }}#step-{{ $item->step_id }}" class="underline decoration-dotted underline-offset-2 hover:text-zinc-800 dark:hover:text-zinc-200">
-                                            {{ __('Step: :title', ['title' => $item->step->currentRevision?->title]) }}
-                                        </a>
-                                    @endif
-                                    @if ($item->isChecked())
-                                        <span>{{ __('Ticked by :who, :when', ['who' => $item->checkedByUser?->name ?? $item->checkedByParty?->name ?? __('someone'), 'when' => $item->checked_at?->diffForHumans()]) }}</span>
-                                    @endif
-                                </flux:text>
-                            </div>
+                            @endif
                         </div>
                     @empty
                         <flux:text size="sm" class="py-1">{{ __('No items.') }}</flux:text>
                     @endforelse
+
+                    @if ($this->canEdit)
+                        @if ($addingToStageId === $stage->id)
+                            <form wire:submit="addItem" class="space-y-3 rounded-lg border border-zinc-200 p-3 dark:border-zinc-700" data-test="item-adder">
+                                <flux:input wire:model="newItemTitle" :label="__('New item')" autofocus />
+                                <flux:textarea wire:model="newItemNotes" :label="__('Notes (Markdown, optional)')" rows="2" />
+                                <flux:select wire:model="newItemStepId" :label="__('Contract step')">
+                                    <flux:select.option value="">{{ __('No step') }}</flux:select.option>
+                                    @foreach ($this->stepOptions as $option)
+                                        <flux:select.option :value="$option->id">{{ $option->currentRevision?->title }}</flux:select.option>
+                                    @endforeach
+                                </flux:select>
+                                <div class="flex gap-2">
+                                    <flux:button size="sm" type="submit" variant="primary">{{ __('Add item') }}</flux:button>
+                                    <flux:button size="sm" variant="ghost" wire:click="cancelAddItem">{{ __('Done') }}</flux:button>
+                                </div>
+                            </form>
+                        @else
+                            <flux:button size="xs" variant="subtle" icon="plus" wire:click="startAddingItem('{{ $stage->id }}')" data-test="add-item">{{ __('Add item') }}</flux:button>
+                        @endif
+                    @endif
                 </section>
             @endforeach
         </flux:card>

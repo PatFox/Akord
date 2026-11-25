@@ -12,12 +12,15 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
+use Illuminate\Queue\Attributes\DeleteWhenMissingModels;
 
 /**
  * One activity row, told to one person in the app and, if their email is verified,
  * by email. Only ids and a sentence describing the change are sent; participants'
- * text (descriptions, comment bodies) stays behind the link and its access checks.
+ * text (descriptions, comment bodies) stays behind the link and its access checks. Dropped
+ * if its activity row went with a deleted contract (D19) before it was sent.
  */
+#[DeleteWhenMissingModels]
 class ContractActivity extends Notification implements ShouldQueue
 {
     use Queueable;

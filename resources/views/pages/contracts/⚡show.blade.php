@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Contracts\ContractReadiness;
+use App\Actions\Contracts\DeleteContract;
 use App\Actions\Contracts\SetContractStatus;
 use App\Actions\Contracts\SignOffContract;
 use App\Actions\Contracts\StartNewVersion;
@@ -270,6 +271,15 @@ new class extends Component {
     }
 
     /**
+     * Owners delete a contract from its latest version once that is cancelled (D19).
+     */
+    #[Computed]
+    public function canDelete(): bool
+    {
+        return $this->contract->status === ContractStatus::Cancelled && $this->nextVersion === null && $this->isOwner;
+    }
+
+    /**
      * Live update from someone's change (Phase 5). The page re-renders and tells the step concerned (or every step)
      * to refresh. If the contract's fingerprint moved away from what this person reviewed because of someone else's
      * change, Sign off waits until they acknowledge it.
@@ -394,6 +404,22 @@ new class extends Component {
 
         if ($next !== null) {
             $this->redirectRoute('contracts.show', ['contract' => $next], navigate: true);
+        }
+    }
+
+    public function deleteContract(): void
+    {
+        $project = $this->contract->project;
+        $deleted = $this->attempt(function (): bool {
+            app(DeleteContract::class)->handle($this->actor(), $this->contract);
+
+            return true;
+        });
+
+        if ($deleted === true) {
+            // The contract is gone, so render() could not reload it.
+            $this->skipRender();
+            $this->redirectRoute('projects.show', ['organisation' => $project->organisation, 'project' => $project], navigate: true);
         }
     }
 
@@ -545,7 +571,7 @@ new class extends Component {
     {
         // Actions may have changed the contract during this request.
         $this->contract->refresh();
-        unset($this->report, $this->changeDescriptions, $this->phases, $this->requiredParties, $this->approved, $this->stageCounts, $this->archivedCount, $this->archivedSteps, $this->stepListing, $this->canEdit, $this->actingIsRequired, $this->actingHasSignedOff, $this->nextVersion, $this->versions, $this->canSetStatus, $this->plan, $this->checklistTabs, $this->shownStepIds);
+        unset($this->report, $this->changeDescriptions, $this->phases, $this->requiredParties, $this->approved, $this->stageCounts, $this->archivedCount, $this->archivedSteps, $this->stepListing, $this->canEdit, $this->actingIsRequired, $this->actingHasSignedOff, $this->nextVersion, $this->versions, $this->canSetStatus, $this->canDelete, $this->plan, $this->checklistTabs, $this->shownStepIds);
         // Tabs: steps, plan, or checklist-{id} for a checklist of this version (one that was replaced is gone).
         $checklistTab = str_starts_with($this->tab, 'checklist-') && $this->checklistTabs->contains('id', substr($this->tab, 10));
         if (! in_array($this->tab, ['steps', 'plan'], true) && ! $checklistTab) {
@@ -627,9 +653,15 @@ new class extends Component {
             <flux:callout.text>
                 {{ $contract->isAgreed() ? __('Reopening it does not unlock it: it is agreed, so any change needs a new version.') : __('This version is read-only until it is reopened.') }}
             </flux:callout.text>
-            @if ($this->canSetStatus)
+            @if ($this->canSetStatus || $this->canDelete)
                 <x-slot name="actions">
-                    <flux:button size="sm" wire:click="setStatus('open')">{{ __('Reopen') }}</flux:button>
+                    @if ($this->canSetStatus)
+                        <flux:button size="sm" wire:click="setStatus('open')">{{ __('Reopen') }}</flux:button>
+                    @endif
+                    @if ($this->canDelete)
+                        <flux:button size="sm" variant="danger" icon="trash" wire:click="deleteContract" data-test="delete-contract"
+                                     wire:confirm="{{ trans_choice('Delete this contract for good? Its steps, comments, approvals, sign-offs, checklists and activity are removed. This cannot be undone.|Delete this contract and all :count versions for good? Their steps, comments, approvals, sign-offs, checklists and activity are removed. This cannot be undone.', $this->contract->version) }}">{{ __('Delete contract') }}</flux:button>
+                    @endif
                 </x-slot>
             @endif
         </flux:callout>

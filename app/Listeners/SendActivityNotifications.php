@@ -11,6 +11,7 @@ use App\Notifications\ContractActivity;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Queue\Attributes\DeleteWhenMissingModels;
 use Illuminate\Support\Facades\Notification;
 
 /**
@@ -19,8 +20,10 @@ use Illuminate\Support\Facades\Notification;
  *
  * Recipients are people in parties attached to the contract, never the person who made
  * the change, and never agents (they poll the activity feed, Q6). Owners who are not in
- * an attached party are not told, except about invitations they sent.
+ * an attached party are not told, except about invitations they sent. A job whose activity row
+ * went with a deleted contract (D19) is dropped.
  */
+#[DeleteWhenMissingModels]
 class SendActivityNotifications implements ShouldQueue
 {
     public function handle(ActivityRecorded $event): void

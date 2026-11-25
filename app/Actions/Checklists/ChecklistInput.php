@@ -4,6 +4,7 @@ namespace App\Actions\Checklists;
 
 use App\Exceptions\ContractLockedException;
 use App\Exceptions\InvalidActionException;
+use App\Models\ChecklistItem;
 use App\Models\Contract;
 use App\Models\Step;
 
@@ -51,6 +52,17 @@ final class ChecklistInput
         if (! $contract->isOpen()) {
             throw new ContractLockedException("This contract is marked {$contract->status->value}. Reopen it to change its checklist.");
         }
+    }
+
+    /**
+     * An item of one of this contract version's checklists, with its stage and checklist; any other id is "not found".
+     */
+    public static function findItem(Contract $contract, string $itemId): ChecklistItem
+    {
+        return ChecklistItem::query()->whereKey($itemId)
+            ->whereHas('stage.checklist', fn ($checklist) => $checklist->where('contract_id', $contract->getKey()))
+            ->with('stage.checklist')
+            ->firstOrFail();
     }
 
     /**

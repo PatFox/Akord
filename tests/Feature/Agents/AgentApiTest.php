@@ -67,6 +67,28 @@ test('agents create named checklists from the plan and tick items as they go, ov
     $this->agent->api('POST', "contracts/{$this->id}/checklists/items/{$item}/uncheck")->assertOk()->assertJsonPath('data.checked', false);
 });
 
+test('agents change, move and delete checklist items over REST', function () {
+    $created = $this->agent->api('POST', "contracts/{$this->id}/checklists", ['name' => 'API team', 'stages' => [
+        ['title' => 'Build', 'items' => [['title' => 'Routes', 'notes' => 'REST only.', 'step_id' => $this->step->id], ['title' => 'Tests']]],
+    ]])->assertCreated();
+    [$routes, $tests] = $created->json('data.checklist.stages.0.items.*.id');
+    $items = "contracts/{$this->id}/checklists/items";
+
+    $this->agent->api('PATCH', "{$items}/{$routes}", ['title' => 'API routes', 'notes' => null])->assertOk()
+        ->assertJsonPath('data.content.title', 'API routes')->assertJsonPath('data.content.notes', null)
+        ->assertJsonPath('data.step_id', $this->step->id)
+        ->assertJsonPath('notice', UntrustedContent::NOTICE);
+    $this->agent->api('PATCH', "{$items}/{$routes}", ['title' => ''])->assertUnprocessable();
+    $this->agent->api('PATCH', "{$items}/{$routes}", [])->assertUnprocessable();
+    $this->agent->api('POST', "{$items}/{$tests}/move", ['after_item_id' => 'start'])->assertOk()->assertJsonPath('data.position', 1);
+    $this->agent->api('DELETE', "{$items}/{$routes}")->assertOk()->assertJsonPath('data.deleted', true);
+    $this->agent->api('DELETE', "{$items}/{$routes}")->assertNotFound();
+    $this->agent->api('GET', "contracts/{$this->id}/checklists")
+        ->assertJsonPath('data.checklists.0.total', 1)
+        ->assertJsonPath('data.checklists.0.stages.0.items.0.content.title', 'Tests')
+        ->assertJsonPath('data.checklists.0.stages.0.items.0.position', 1);
+});
+
 test('approving needs the reviewed revision; a content change since then is a conflict', function () {
     app(ReviseStep::class)->handle($this->s->alpha, $this->step, 1, 'Build the API', 'Changed.');
 

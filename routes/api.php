@@ -42,6 +42,9 @@ Route::prefix('v1')->group(function () {
             Route::post('stages/{stage}/items', [ChecklistController::class, 'storeItem']);
             Route::post('items/{item}/check', [ChecklistController::class, 'check']);
             Route::post('items/{item}/uncheck', [ChecklistController::class, 'uncheck']);
+            Route::patch('items/{item}', [ChecklistController::class, 'updateItem']);
+            Route::delete('items/{item}', [ChecklistController::class, 'destroyItem']);
+            Route::post('items/{item}/move', [ChecklistController::class, 'moveItem']);
         });
 
         Route::prefix('contracts/{contract}/steps/{step}')->where(['contract' => RandomId::PATTERN, 'step' => RandomId::PATTERN])->group(function () {

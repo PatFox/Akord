@@ -2,10 +2,13 @@
 
 use App\Actions\Approvals\ApproveStep;
 use App\Actions\Approvals\WithdrawApproval;
+use App\Actions\Checklists\CreateChecklist;
+use App\Actions\Checklists\SetChecklistAssignee;
 use App\Actions\Comments\AddComment;
 use App\Actions\Comments\ResolveComment;
 use App\Actions\Contracts\AttachParty;
 use App\Actions\Contracts\ContractReadiness;
+use App\Actions\Contracts\DeleteContract;
 use App\Actions\Contracts\InviteToContract;
 use App\Actions\Contracts\SetContractStatus;
 use App\Actions\Contracts\SetRequiredApprover;
@@ -27,9 +30,15 @@ use App\Enums\ContractStatus;
 use App\Models\ActivityEvent;
 use App\Models\Approval;
 use App\Models\Comment;
+use App\Models\Contract;
 use App\Models\ContractSignoff;
+use App\Models\Invitation;
+use App\Models\Phase;
 use App\Models\Step;
+use App\Models\StepRevision;
 use App\Support\Actor;
+use Illuminate\Notifications\DatabaseNotification;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Tests\Support\Scenario;
 
@@ -184,4 +193,70 @@ test('an owner can change a role on an agreed version without touching its agree
 
     app(SetContractStatus::class)->handle($this->s->beta, $this->s->contract, ContractStatus::Open);
     expect($changeRole($this->s->alpha, ContractRole::Commenter))->toBe(200);
+});
+
+test('an owner deletes a cancelled contract with every version and everything recorded on them; other contracts and the parties stay', function () {
+    Mail::fake();
+    $elsewhere = Scenario::make();
+    $elsewhereStep = $elsewhere->step();
+    app(AddComment::class)->handle($elsewhere->beta, $elsewhereStep, CommentKind::Question, 'Kept?');
+
+    // Version 2, open, with a comment thread, a checklist with an assignee, an invitation and in-app notifications.
+    $next = app(StartNewVersion::class)->handle($this->s->ownerActor(), $this->s->contract);
+    $step = Step::query()->whereRelation('phase', 'contract_id', $next->id)->orderBy('position')->firstOrFail();
+    $question = app(AddComment::class)->handle($this->s->beta, $step, CommentKind::Question, 'Why?');
+    app(AddComment::class)->handle($this->s->alpha, $step, CommentKind::General, 'Because.', $question);
+    $checklist = app(CreateChecklist::class)->handle($this->s->alpha, $next, 'QA');
+    app(SetChecklistAssignee::class)->handle($this->s->ownerActor(), $next, $checklist->id, $this->s->beta->party, true);
+    app(InviteToContract::class)->handle($this->s->ownerActor(), $next, $this->s->beta->party, 'late@example.com');
+    app(SetContractStatus::class)->handle($this->s->alpha, $next, ContractStatus::Cancelled);
+
+    $contractIds = [$this->s->contract->id, $next->id];
+    $stepIds = Step::query()->whereIn('phase_id', Phase::query()->whereIn('contract_id', $contractIds)->select('id'))->pluck('id')->all();
+    $notifications = fn () => DatabaseNotification::query()->whereIn('data->contract_id', $contractIds)->count();
+    expect($notifications())->toBeGreaterThan(0)
+        ->and(DB::table('checklist_party')->count())->toBe(1);
+
+    app(DeleteContract::class)->handle($this->s->ownerActor(), $next);
+
+    expect(Contract::query()->whereKey($contractIds)->count())->toBe(0)
+        ->and(DB::table('contract_party')->whereIn('contract_id', $contractIds)->count())->toBe(0)
+        ->and(Phase::query()->whereIn('contract_id', $contractIds)->count())->toBe(0)
+        ->and(Step::query()->whereKey($stepIds)->count())->toBe(0)
+        ->and(StepRevision::query()->whereIn('step_id', $stepIds)->count())->toBe(0)
+        ->and(Comment::query()->whereIn('step_id', $stepIds)->count())->toBe(0)
+        ->and(Approval::query()->whereIn('step_id', $stepIds)->count())->toBe(0)
+        ->and(ContractSignoff::query()->whereIn('contract_id', $contractIds)->count())->toBe(0)
+        ->and(Invitation::query()->whereIn('contract_id', $contractIds)->count())->toBe(0)
+        ->and(ActivityEvent::query()->whereIn('contract_id', $contractIds)->count())->toBe(0)
+        ->and(DB::table('checklists')->count())->toBe(0)
+        ->and(DB::table('checklist_items')->count())->toBe(0)
+        ->and(DB::table('checklist_party')->count())->toBe(0)
+        ->and($notifications())->toBe(0)
+        ->and($this->s->alpha->party?->fresh())->not->toBeNull()
+        ->and($this->s->contract->project->fresh())->not->toBeNull()
+        ->and($elsewhere->contract->fresh())->not->toBeNull()
+        ->and(Comment::query()->where('step_id', $elsewhereStep->id)->count())->toBe(1)
+        ->and(StepRevision::query()->where('step_id', $elsewhereStep->id)->count())->toBe(1);
+});
+
+test('only an owner deletes a contract, from its latest version, once that is cancelled', function () {
+    $delete = fn (Actor $actor, Contract $contract) => status(fn () => app(DeleteContract::class)->handle($actor, $contract));
+    $agent = $this->s->party(ContractRole::Editor, agent: true);
+
+    // A cancelled version that was continued anyway: the contract is its newest version, which is open.
+    app(SetContractStatus::class)->handle($this->s->alpha, $this->s->contract, ContractStatus::Cancelled);
+    $next = app(StartNewVersion::class)->handle($this->s->ownerActor(), $this->s->contract);
+
+    expect($delete($this->s->ownerActor(), $this->s->contract))->toBe(422)
+        ->and($delete($this->s->ownerActor(), $next))->toBe(422);
+
+    app(SetContractStatus::class)->handle($this->s->alpha, $next, ContractStatus::Complete);
+    expect($delete($this->s->ownerActor(), $next))->toBe(422);
+
+    app(SetContractStatus::class)->handle($this->s->alpha, $next, ContractStatus::Cancelled);
+    expect($delete($this->s->alpha, $next))->toBe(403)
+        ->and($delete($agent, $next))->toBe(403)
+        ->and($delete($this->s->ownerActor(), $next))->toBe(200)
+        ->and(Contract::query()->whereKey([$this->s->contract->id, $next->id])->count())->toBe(0);
 });

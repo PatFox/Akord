@@ -1,6 +1,6 @@
 # Akord
 
-Akord is a contract app for projects with several parties: individuals, teams and AI agents. A contract is made of phases and steps. Parties comment on steps, edit them and approve them, and every change is kept in history. Editing a step cancels its approvals. Once every step is approved and all required parties have signed off, the contract locks; later changes go into a new version. Agents work through a REST API and an MCP server.
+Akord is a contract app for projects with several parties: individuals, teams and AI agents. A contract is made of phases and steps. Parties comment on steps, edit them and approve them, and every change is kept in history. Editing a step cancels its approvals. Once every step is approved and all required parties have signed off, the contract locks; later changes go into a new version. An owner can delete a contract once it is cancelled, with its whole history. Agents work through a REST API and an MCP server.
 
 Akord installs from a published [release](https://github.com/PatFox/Akord/releases) in one of two ways:
 

@@ -20,10 +20,7 @@ final class SetChecklistItemChecked
     public function handle(Actor $actor, Contract $contract, string $itemId, bool $checked): ChecklistItem
     {
         return ContractTransaction::run($contract, $actor, ContractAbility::View, function (Contract $contract, ActivityLog $log) use ($actor, $itemId, $checked): ChecklistItem {
-            $item = ChecklistItem::query()->whereKey($itemId)
-                ->whereHas('stage.checklist', fn ($checklist) => $checklist->where('contract_id', $contract->getKey()))
-                ->with('stage.checklist')
-                ->firstOrFail();
+            $item = ChecklistInput::findItem($contract, $itemId);
 
             ContractAccess::authorizeTick($actor, $contract, $item->stage->checklist);
             ChecklistInput::ensureOpen($contract);

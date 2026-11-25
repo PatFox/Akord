@@ -77,6 +77,13 @@ final class ActivityDescription
             'checklist.item_checked' => __(':actor ticked :subject in :name', ['actor' => $actor, 'subject' => $subject, 'name' => self::checklistName($event)]),
             'checklist.item_unchecked' => __(':actor unticked :subject in :name', ['actor' => $actor, 'subject' => $subject, 'name' => self::checklistName($event)]),
             'checklist.item_added' => __(':actor added :subject to :name', ['actor' => $actor, 'subject' => $subject, 'name' => self::checklistName($event)]),
+            'checklist.item_updated' => __(':actor changed :subject in :name', ['actor' => $actor, 'subject' => $subject, 'name' => self::checklistName($event)]),
+            'checklist.item_moved' => __(':actor moved :subject in :name', ['actor' => $actor, 'subject' => $subject, 'name' => self::checklistName($event)]),
+            'checklist.item_deleted' => __(':actor deleted :subject from :name', [
+                'actor' => $actor,
+                'subject' => is_string($payload['title'] ?? null) ? '“'.$payload['title'].'”' : __('an item'),
+                'name' => self::checklistName($event),
+            ]),
             'checklist.party_assigned' => __(':actor assigned :subject to :name', ['actor' => $actor, 'subject' => $subject, 'name' => self::checklistName($event)]),
             'checklist.party_unassigned' => __(':actor removed :subject from :name', ['actor' => $actor, 'subject' => $subject, 'name' => self::checklistName($event)]),
             default => __(':actor made a change', compact('actor')),
@@ -84,7 +91,7 @@ final class ActivityDescription
     }
 
     /**
-     * “API team”, from the payload (creation, assignment) or the item's checklist; "the checklist" when neither is known any more.
+     * “API team”, from the payload (creation, assignment, deleted items) or the item's checklist; "the checklist" when neither is known any more.
      */
     private static function checklistName(ActivityEvent $event): string
     {

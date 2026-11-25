@@ -2,8 +2,11 @@
 
 use App\Actions\Checklists\AddChecklistItem;
 use App\Actions\Checklists\CreateChecklist;
+use App\Actions\Checklists\DeleteChecklistItem;
+use App\Actions\Checklists\MoveChecklistItem;
 use App\Actions\Checklists\SetChecklistAssignee;
 use App\Actions\Checklists\SetChecklistItemChecked;
+use App\Actions\Checklists\UpdateChecklistItem;
 use App\Actions\Contracts\DetachParty;
 use App\Actions\Contracts\SetContractStatus;
 use App\Actions\Contracts\SignOffContract;
@@ -218,6 +221,72 @@ test('an owner assigns attached parties to a checklist, which then tick its item
     expect(status(fn () => app(SetChecklistAssignee::class)->handle($this->s->ownerActor(), $next, $next->checklists()->where('name', 'API team')->sole()->id, $member->party, false)))->toBe(423);
 });
 
+test('editors change, reorder and delete items, keeping ticks and closing gaps; the activity says what happened', function () {
+    $checklist = app(CreateChecklist::class)->handle($this->s->alpha, $this->s->contract, 'API team', [
+        ['title' => 'Build', 'items' => [['title' => 'Routes', 'notes' => 'REST only.', 'step_id' => $this->one->id], ['title' => 'Tests'], ['title' => 'Docs']]],
+        ['title' => 'Ship', 'items' => [['title' => 'Deploy']]],
+    ]);
+    $other = app(CreateChecklist::class)->handle($this->s->alpha, $this->s->contract, 'App team', [['title' => 'Screens', 'items' => [['title' => 'Login']]]]);
+    $id = fn (string $title) => ChecklistItem::query()->where('title', $title)->sole()->id;
+    $layout = fn () => $checklist->items()->orderBy('checklist_stages.position')->orderBy('checklist_items.position')->get()
+        ->map(fn (ChecklistItem $item) => $item->stage->title.' '.$item->position.' '.$item->title.($item->isChecked() ? ' ✓' : ''))->all();
+    $update = fn (array $changes, ?string $item = null) => status(fn () => app(UpdateChecklistItem::class)->handle($this->s->alpha, $this->s->contract, $item ?? $id('Routes'), $changes));
+    $move = fn (string $item, ?string $stage, ?string $after) => status(fn () => app(MoveChecklistItem::class)->handle($this->s->alpha, $this->s->contract, $item, $stage, $after));
+    $describe = fn (string $type) => ActivityDescription::for(ActivityEvent::query()->where('type', $type)->latest('position')->firstOrFail());
+    $ship = $checklist->stages()->where('title', 'Ship')->sole();
+    app(SetChecklistItemChecked::class)->handle($this->s->alpha, $this->s->contract, $id('Routes'), true);
+
+    // Only the fields given change; empty notes clear them; the tick stays; repeating it records nothing.
+    expect($update(['title' => 'API routes', 'notes' => '', 'step_id' => $this->two->id]))->toBe(200);
+    $routes = ChecklistItem::query()->where('title', 'API routes')->sole();
+    expect([$routes->notes, $routes->step_id, $routes->isChecked()])->toBe([null, $this->two->id, true])
+        ->and($update(['title' => 'API routes'], $routes->id))->toBe(200)
+        ->and($this->s->activityCount('checklist.item_updated'))->toBe(1)
+        ->and(ActivityEvent::query()->where('type', 'checklist.item_updated')->sole()->payload)->toBe(['fields' => ['title', 'notes', 'step_id']])
+        ->and($describe('checklist.item_updated'))->toContain('changed “API routes” in “API team”')
+        ->and($update([], $routes->id))->toBe(422)
+        ->and($update(['step_id' => 'nope'], $routes->id))->toBe(422);
+
+    // Reorder within a stage, move to another stage of the same checklist; positions stay 1..n.
+    expect($move($id('Docs'), null, 'start'))->toBe(200)
+        ->and($move($routes->id, $ship->id, $id('Deploy')))->toBe(200)
+        ->and($layout())->toBe(['Build 1 Docs', 'Build 2 Tests', 'Ship 1 Deploy', 'Ship 2 API routes ✓'])
+        ->and($move($id('Deploy'), null, null))->toBe(200)
+        ->and($layout())->toBe(['Build 1 Docs', 'Build 2 Tests', 'Ship 1 API routes ✓', 'Ship 2 Deploy'])
+        ->and($describe('checklist.item_moved'))->toContain('moved “Deploy” in “API team”')
+        ->and($move($id('Tests'), null, $id('Tests')))->toBe(422)
+        ->and($move($id('Tests'), null, $id('Deploy')))->toBe(422)
+        ->and($move($id('Tests'), $other->stages()->sole()->id, null))->toBe(422);
+
+    // Deleting closes the gap and keeps the title for the activity description.
+    app(DeleteChecklistItem::class)->handle($this->s->alpha, $this->s->contract, $id('Docs'));
+    expect($layout())->toBe(['Build 1 Tests', 'Ship 1 API routes ✓', 'Ship 2 Deploy'])
+        ->and($describe('checklist.item_deleted'))->toBe($this->s->alpha->user?->name.' deleted “Docs” from “API team”');
+});
+
+test('only the edit ability changes, moves or deletes items: not commenters, assigned viewers or read-only agents; closed versions refuse', function () {
+    $checklist = app(CreateChecklist::class)->handle($this->s->alpha, $this->s->contract, 'API team');
+    $itemId = $checklist->items()->first()->id;
+    $viewer = $this->s->party(ContractRole::Viewer);
+    app(SetChecklistAssignee::class)->handle($this->s->ownerActor(), $this->s->contract, $checklist->id, $viewer->party, true);
+    $readOnlyAgent = $this->s->party(ContractRole::Editor, agent: true, abilities: ['read']);
+    $elsewhere = Scenario::make();
+    $foreign = app(CreateChecklist::class)->handle($elsewhere->alpha, $elsewhere->contract, 'Elsewhere', [['title' => 'Theirs', 'items' => [['title' => 'Not yours']]]]);
+    $all = fn (Actor $as, string $item) => [
+        status(fn () => app(UpdateChecklistItem::class)->handle($as, $this->s->contract, $item, ['title' => 'New'])),
+        status(fn () => app(MoveChecklistItem::class)->handle($as, $this->s->contract, $item, null, 'start')),
+        status(fn () => app(DeleteChecklistItem::class)->handle($as, $this->s->contract, $item)),
+    ];
+
+    expect($all($this->s->beta, $itemId))->toBe([403, 403, 403])
+        ->and($all($viewer, $itemId))->toBe([403, 403, 403])
+        ->and($all($readOnlyAgent, $itemId))->toBe([403, 403, 403])
+        ->and($all($this->s->alpha, $foreign->items()->first()->id))->toBe([404, 404, 404]);
+
+    app(SetContractStatus::class)->handle($this->s->alpha, $this->s->contract, ContractStatus::Complete);
+    expect($all($this->s->alpha, $itemId))->toBe([423, 423, 423]);
+});
+
 test('owners assign from the checklist tab; an assigned viewer ticks there', function () {
     $api = app(CreateChecklist::class)->handle($this->s->alpha, $this->s->contract, 'API team');
     $viewer = $this->s->party(ContractRole::Viewer);
@@ -236,4 +305,70 @@ test('owners assign from the checklist tab; an assigned viewer ticks there', fun
     $after = Livewire::test('pages::contracts.checklist', ['contract' => $this->s->contract, 'checklistId' => $api->id]);
     expect($after->instance()->canTick)->toBeTrue();
     $after->call('toggle', $api->items()->first()->id)->assertSee('1 of 2 done');
+});
+
+test('editors change, reorder, move and delete items from the checklist tab; viewers get no item actions', function () {
+    $checklist = app(CreateChecklist::class)->handle($this->s->alpha, $this->s->contract, 'API team', [
+        ['title' => 'Build', 'items' => [['title' => 'Routes', 'notes' => 'REST only.'], ['title' => 'Tests']]],
+        ['title' => 'Ship', 'items' => [['title' => 'Deploy']]],
+    ]);
+    $id = fn (string $title) => ChecklistItem::query()->where('title', $title)->sole()->id;
+    $layout = fn () => $checklist->items()->orderBy('checklist_stages.position')->orderBy('checklist_items.position')->get()
+        ->map(fn (ChecklistItem $item) => $item->stage->title.' '.$item->title)->all();
+    $tab = fn () => Livewire::test('pages::contracts.checklist', ['contract' => $this->s->contract, 'checklistId' => $checklist->id]);
+
+    $this->actingAs($this->s->party(ContractRole::Viewer)->user);
+    $tab()->assertDontSeeHtml('data-test="item-actions"');
+
+    $this->actingAs($this->s->alpha->user);
+    $page = $tab()->assertSeeHtml('data-test="item-actions"')
+        ->call('editItem', $id('Routes'))->assertSet('itemTitle', 'Routes')->assertSet('itemNotes', 'REST only.')
+        ->set('itemTitle', '  ')->call('saveItem')->assertHasErrors('itemTitle')
+        ->set('itemTitle', 'API routes')->set('itemNotes', '')->set('itemStepId', $this->one->id)->call('saveItem')
+        ->assertHasNoErrors()->assertSet('editingItemId', null)->assertSee('API routes')->assertSee('Step: Endpoints')->assertDispatched('checklist-updated');
+    expect(ChecklistItem::query()->whereKey($id('API routes'))->value('notes'))->toBeNull();
+
+    $page->call('moveItem', $id('Tests'), -1);
+    expect($layout())->toBe(['Build Tests', 'Build API routes', 'Ship Deploy']);
+
+    $page->call('moveItem', $id('Tests'), 1);
+    expect($layout())->toBe(['Build API routes', 'Build Tests', 'Ship Deploy']);
+
+    $page->call('moveItemTo', $id('API routes'), $checklist->stages()->where('title', 'Ship')->sole()->id);
+    expect($layout())->toBe(['Build Tests', 'Ship Deploy', 'Ship API routes']);
+
+    $page->call('editItem', $id('Deploy'))->call('deleteItem', $id('Deploy'))
+        ->assertSet('editingItemId', null)->assertDontSee('Deploy')->assertSee('0 of 2 done');
+    expect($layout())->toBe(['Build Tests', 'Ship API routes']);
+});
+
+test('editors add items at the end of a stage from the checklist tab, several in a row; viewers get no add control', function () {
+    $checklist = app(CreateChecklist::class)->handle($this->s->alpha, $this->s->contract, 'API team', [
+        ['title' => 'Build', 'items' => [['title' => 'Routes']]],
+        ['title' => 'Ship', 'items' => []],
+    ]);
+    $ship = $checklist->stages()->where('title', 'Ship')->sole();
+    $tab = fn () => Livewire::test('pages::contracts.checklist', ['contract' => $this->s->contract, 'checklistId' => $checklist->id]);
+
+    $this->actingAs($this->s->party(ContractRole::Viewer)->user);
+    $tab()->assertDontSeeHtml('data-test="add-item"');
+
+    $this->actingAs($this->s->alpha->user);
+    $page = $tab()->assertSeeHtml('data-test="add-item"')
+        ->call('startAddingItem', $ship->id)->assertSeeHtml('data-test="item-adder"')
+        ->set('newItemTitle', ' ')->call('addItem')->assertHasErrors('newItemTitle')
+        ->set('newItemTitle', 'Deploy')->set('newItemNotes', 'Blue-green.')->set('newItemStepId', $this->two->id)->call('addItem')
+        ->assertHasNoErrors()->assertSet('addingToStageId', $ship->id)->assertSet('newItemTitle', '')->assertDispatched('checklist-updated')
+        ->set('newItemTitle', 'Announce')->call('addItem')
+        ->assertSee('0 of 3 done')
+        ->call('cancelAddItem')->assertDontSeeHtml('data-test="item-adder"');
+
+    expect($ship->items()->get()->map(fn (ChecklistItem $item) => [$item->position, $item->title, $item->notes, $item->step_id])->all())
+        ->toBe([[1, 'Deploy', 'Blue-green.', $this->two->id], [2, 'Announce', null, null]])
+        ->and($this->s->activityCount('checklist.item_added'))->toBe(2);
+
+    // Closing the version closes the form.
+    $page->call('startAddingItem', $ship->id);
+    app(SetContractStatus::class)->handle($this->s->alpha, $this->s->contract, ContractStatus::Complete);
+    $page->call('$refresh')->assertSet('addingToStageId', null)->assertDontSeeHtml('data-test="add-item"');
 });

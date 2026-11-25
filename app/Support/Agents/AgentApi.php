@@ -7,7 +7,10 @@ use App\Actions\Approvals\ApproveStep;
 use App\Actions\Approvals\WithdrawApproval;
 use App\Actions\Checklists\AddChecklistItem;
 use App\Actions\Checklists\CreateChecklist;
+use App\Actions\Checklists\DeleteChecklistItem;
+use App\Actions\Checklists\MoveChecklistItem;
 use App\Actions\Checklists\SetChecklistItemChecked;
+use App\Actions\Checklists\UpdateChecklistItem;
 use App\Actions\Comments\AddComment;
 use App\Actions\Contracts\ContractReadiness;
 use App\Actions\Contracts\SetContractStatus;
@@ -346,6 +349,37 @@ final class AgentApi
         $item = app(AddChecklistItem::class)->handle($actor, $this->visibleContract($actor, $contractId), $stageId, $title, $notes, $stepId);
 
         return AgentPresenter::checklistItem($item);
+    }
+
+    /**
+     * @param  array{title?: string, notes?: string|null, step_id?: string|null}  $changes  only the keys given change
+     * @return array<string, mixed>
+     */
+    public function updateChecklistItem(Actor $actor, string $contractId, string $itemId, array $changes): array
+    {
+        $item = app(UpdateChecklistItem::class)->handle($actor, $this->visibleContract($actor, $contractId), $itemId, $changes);
+
+        return AgentPresenter::checklistItem($item->load(['checkedByParty', 'checkedByUser']));
+    }
+
+    /**
+     * @return array{item_id: string, deleted: true}
+     */
+    public function deleteChecklistItem(Actor $actor, string $contractId, string $itemId): array
+    {
+        app(DeleteChecklistItem::class)->handle($actor, $this->visibleContract($actor, $contractId), $itemId);
+
+        return ['item_id' => $itemId, 'deleted' => true];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function moveChecklistItem(Actor $actor, string $contractId, string $itemId, ?string $stageId, ?string $afterItemId): array
+    {
+        $item = app(MoveChecklistItem::class)->handle($actor, $this->visibleContract($actor, $contractId), $itemId, $stageId, $afterItemId);
+
+        return AgentPresenter::checklistItem($item->load(['checkedByParty', 'checkedByUser']));
     }
 
     private function visibleContract(Actor $actor, string $contractId): Contract
