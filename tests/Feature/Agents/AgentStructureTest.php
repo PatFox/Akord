@@ -26,6 +26,14 @@ function titlesIn(string $phaseId): array
 }
 
 /**
+ * @return list<string> ids of the contract's phases, in order
+ */
+function phaseIds(string $contractId): array
+{
+    return Phase::query()->where('contract_id', $contractId)->orderBy('position')->pluck('id')->all();
+}
+
+/**
  * The JSON inside an MCP reply's <contract-data> block.
  *
  * @return array<string, mixed>
@@ -89,12 +97,33 @@ test('the same operations work as MCP tools', function () {
     expect(titlesIn($phase))->toBe(['Build the API']);
 });
 
+test('an editor agent reorders phases, steps included, over REST and MCP', function () {
+    $first = $this->s->phase->id;
+    $second = $this->agent->api('POST', "contracts/{$this->id}/phases", ['title' => 'Rollout'])->json('data.id');
+    $third = $this->agent->api('POST', "contracts/{$this->id}/phases", ['title' => 'Monitoring'])->json('data.id');
+
+    $this->agent->api('POST', "contracts/{$this->id}/phases/{$first}/move")->assertOk()
+        ->assertJsonPath('data.phase_id', $first)->assertJsonPath('data.position', 3);
+    expect(phaseIds($this->id))->toBe([$second, $third, $first]);
+
+    $this->agent->api('POST', "contracts/{$this->id}/phases/{$third}/move", ['after_phase_id' => 'start'])->assertOk()->assertJsonPath('data.position', 1);
+    expect(phaseIds($this->id))->toBe([$third, $second, $first]);
+
+    [$error, $text] = $this->agent->tool('move_phase', ['contract_id' => $this->id, 'phase_id' => $first, 'after_phase_id' => $third]);
+    expect($error)->toBeFalse()->and(toolData($text)['position'])->toBe(2)
+        ->and(phaseIds($this->id))->toBe([$third, $first, $second])
+        ->and(titlesIn($first))->toBe(['Build the API'])
+        ->and($this->s->activityCount('phases.reordered'))->toBe(3);
+});
+
 test('structure changes are refused by role, token ability, scope and the lock', function () {
     $commenter = AgentClient::on($this, $this->s, ContractRole::Commenter, required: false);
     $noEdit = AgentClient::on($this, $this->s, required: false, abilities: ['read', 'comment']);
     $other = Contract::factory()->for($this->s->contract->project)->create();
     $otherPhase = Phase::factory()->for($other)->create(['position' => 1]);
     $phaseUri = "contracts/{$this->id}/phases/{$this->s->phase->id}/steps";
+    $moveUri = "contracts/{$this->id}/phases/{$this->s->phase->id}/move";
+    $later = Phase::factory()->for($this->s->contract)->create(['position' => 2]);
 
     $commenter->api('POST', "contracts/{$this->id}/phases", ['title' => 'X'])->assertForbidden();
     $noEdit->api('POST', $phaseUri, ['title' => 'X', 'description_md' => ''])->assertForbidden();
@@ -105,14 +134,21 @@ test('structure changes are refused by role, token ability, scope and the lock',
     [$error, $text] = $commenter->tool('archive_step', ['contract_id' => $this->id, 'step_id' => $this->step->id]);
     expect($error)->toBeTrue()->and($text)->toStartWith('403: ');
 
+    $commenter->api('POST', $moveUri)->assertForbidden();
+    $noEdit->api('POST', $moveUri)->assertForbidden();
+    $this->agent->api('POST', "contracts/{$this->id}/phases/{$otherPhase->id}/move")->assertNotFound();
+    $this->agent->api('POST', $moveUri, ['after_phase_id' => $this->s->phase->id])->assertUnprocessable();
+    $this->agent->api('POST', $moveUri, ['after_phase_id' => $otherPhase->id])->assertUnprocessable();
+
     agreeContract($this->s);
     $this->agent->api('POST', $phaseUri, ['title' => 'X', 'description_md' => ''])->assertStatus(423);
     $this->agent->api('POST', "contracts/{$this->id}/phases", ['title' => 'X'])->assertStatus(423);
+    $this->agent->api('POST', $moveUri, ['after_phase_id' => $later->id])->assertStatus(423);
     $this->agent->api('POST', "contracts/{$this->id}/steps/{$this->step->id}/move", ['after_step_id' => 'start'])->assertStatus(423);
     $this->agent->api('POST', "contracts/{$this->id}/steps/{$this->step->id}/archive")->assertStatus(423);
 
     expect(titlesIn($this->s->phase->id))->toBe(['Build the API'])
-        ->and(Phase::query()->where('contract_id', $this->id)->count())->toBe(1);
+        ->and(phaseIds($this->id))->toBe([$this->s->phase->id, $later->id]);
 });
 
 test('adding a step cancels sign-offs; moving one keeps approvals and sign-offs', function () {

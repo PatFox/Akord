@@ -18,6 +18,17 @@ class PhaseController extends AgentApiController
     }
 
     /**
+     * POST /api/v1/contracts/{id}/phases/{id}/move {after_phase_id?}
+     * after_phase_id omitted: the end of the contract; "start": the start; else directly after that phase.
+     */
+    public function move(Request $request, string $contract, string $phase): JsonResponse
+    {
+        $v = $request->validate(['after_phase_id' => ['nullable', 'string']]);
+
+        return $this->respond($this->api->movePhase($this->actor($request), $contract, $phase, $v['after_phase_id'] ?? null));
+    }
+
+    /**
      * POST /api/v1/contracts/{id}/phases/{id}/steps {title, description_md, change_note?, after_step_id?}
      * after_step_id: omitted for the end of the phase, "start" for the start, else directly after that step.
      */

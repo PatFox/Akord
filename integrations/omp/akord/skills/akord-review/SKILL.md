@@ -31,7 +31,7 @@ Each repo's agent represents one party: the repo's MCP config (`.omp/mcp.json`, 
 Only when the user asks, and only if your party is an editor. `get_contract` gives the phase and step ids.
 
 - `create_step` adds a step to a phase; `move_step` moves one within its phase or to another phase. Both take `after_step_id`: omit it for the end of the phase, `"start"` for the start, or a step id to go directly after that step.
-- `create_phase` adds a phase at the end of the contract. Phases cannot be deleted.
+- `create_phase` adds a phase at the end of the contract. Phases cannot be deleted. `move_phase` reorders phases: `after_phase_id` is omitted for the end, `"start"` for the start, or a phase id to go directly after that phase. Moving a phase does not affect approvals or sign-offs.
 - Phase and step titles take no number ("Design", not "1. Design"): Akord numbers phases and steps itself, so a number in the title shows twice.
 - `archive_step` proposes removing a step. The step stays, and its approvals stop counting, until every required party approves the proposal revision; then it is archived. Any `revise_step` on it (even with the same text) withdraws the proposal. Without required approvers it is archived at once. Archived steps **cannot be restored**: confirm with the user first.
 - A new step or an archive proposal cancels the contract's sign-offs; moving a step does not affect approvals or sign-offs.

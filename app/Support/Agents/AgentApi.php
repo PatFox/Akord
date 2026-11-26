@@ -17,6 +17,7 @@ use App\Actions\Contracts\SetContractStatus;
 use App\Actions\Contracts\SignOffContract;
 use App\Actions\Contracts\WithdrawSignOff;
 use App\Actions\Phases\CreatePhase;
+use App\Actions\Phases\ReorderPhases;
 use App\Actions\Steps\ArchiveStep;
 use App\Actions\Steps\CreateStep;
 use App\Actions\Steps\MoveStep;
@@ -249,6 +250,17 @@ final class AgentApi
         $phase = app(CreatePhase::class)->handle($actor, $this->visibleContract($actor, $contractId), $title);
 
         return ['id' => $phase->id, 'position' => $phase->position, 'content' => ['title' => $phase->title]];
+    }
+
+    /**
+     * @param  string|null  $afterPhaseId  null: the end; "start": the start; otherwise directly after that phase
+     * @return array<string, mixed>
+     */
+    public function movePhase(Actor $actor, string $contractId, string $phaseId, ?string $afterPhaseId): array
+    {
+        $phase = app(ReorderPhases::class)->handleAfter($actor, $this->visibleContract($actor, $contractId), $phaseId, $afterPhaseId);
+
+        return ['phase_id' => $phase->id, 'position' => $phase->position];
     }
 
     /**

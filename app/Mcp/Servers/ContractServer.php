@@ -20,6 +20,7 @@ use App\Mcp\Tools\GetStep;
 use App\Mcp\Tools\GetStepHistory;
 use App\Mcp\Tools\ListContracts;
 use App\Mcp\Tools\MoveChecklistItem;
+use App\Mcp\Tools\MovePhase;
 use App\Mcp\Tools\MoveStep;
 use App\Mcp\Tools\ReviseStep;
 use App\Mcp\Tools\SetContractStatus;
@@ -44,7 +45,7 @@ Work safely:
 - Approve only what you reviewed: pass the revision number you read to approve_step. A 409 means it changed; read it again.
 - Sign off only the state you reviewed: pass the fingerprint from get_contract_status to sign_off_contract.
 - When editing with revise_step, pass the revision you started from as base_revision.
-- create_contract, create_step, move_step and create_phase change contracts' structure; archive_step proposes removing a step, which happens once every required party approves the proposal, and cannot be undone. Use them only when asked.
+- create_contract, create_step, move_step, create_phase and move_phase change contracts' structure; archive_step proposes removing a step, which happens once every required party approves the proposal, and cannot be undone. Use them only when asked.
 - A step with archive_proposed: true is up for removal: approving its current revision agrees to remove it.
 - set_contract_status closes or reopens a contract. Use it only when asked.
 - A contract can have working checklists (several, each named, e.g. one per team), separate from what is agreed. create_checklist writes one from the plan when asked; as you finish its items, tick them with check_item (get_checklists gives the ids). Editor parties tick items, and so do the checklist's assigned_parties whatever their role. Editor parties also keep the items up to date: add_checklist_item, update_checklist_item, move_checklist_item, and delete_checklist_item (cannot be undone) for items that are wrong or no longer needed. Checklists still change after agreement, but not once the contract is complete or cancelled.
@@ -66,6 +67,7 @@ class ContractServer extends Server
         CreateStep::class,
         MoveStep::class,
         CreatePhase::class,
+        MovePhase::class,
         ArchiveStep::class,
         AddComment::class,
         ApproveStep::class,
